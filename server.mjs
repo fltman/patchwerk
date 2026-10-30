@@ -1,16 +1,18 @@
 // Static server (no build step) + /api/chat, which forwards the patch assistant's
 // conversation to OpenRouter (the API key stays here; the browser never sees it),
+// + /api/decide, which does the same for the live DJ's decisions,
 // + /api/out, which publishes the picture to Syphon, Spout and NDI.
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { systemPrompt, TOOLS } from './src/ai/catalog.js';
-import { attachOutputs, availableOutputs, outputLabels } from './server/outputs.mjs';
+import { attachOutputs, availableOutputs, outputLabels, sameOrigin } from './server/outputs.mjs';
 
 const PORT = Number(process.env.PORT) || 8270;
 const HOST = process.env.HOST || '127.0.0.1'; // local only: /api/chat spends your OpenRouter credit
 const MODEL = process.env.PATCHWERK_MODEL || 'anthropic/claude-sonnet-5.5';
+const DJ_MODEL = process.env.PATCHWERK_DJ_MODEL || 'inception/mercury-decide';
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -80,11 +82,32 @@ async function chat(req, res) {
   res.end(JSON.stringify({ message: { role, content: content ?? '', ...(tool_calls?.length ? { tool_calls } : {}) }, finish: choice.finish_reason, usage: r.json.usage, model: r.json.model }));
 }
 
+// One decision for the live DJ. It has about a bar to arrive; after that nobody wants it.
+async function decide(req, res) {
+  const send = (status, body) => {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  if (!process.env.OPENROUTER_API_KEY) return send(500, { error: 'OPENROUTER_API_KEY is not set in the environment that runs npm start.', status: 401 });
+  const { state, questions } = await readJson(req, 1e5);
+  const r = await fetch('https://openrouter.ai/api/alpha/decisions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: DJ_MODEL, state, questions }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) return send(502, { error: String(json.error?.message ?? `OpenRouter answered ${r.status}`).slice(0, 300), status: r.status });
+  send(200, { answers: json.answers, usage: json.usage, model: json.model });
+}
+
 const outputs = await availableOutputs();
 const server = createServer(async (req, res) => {
   try {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (path.startsWith('/api/') && !sameOrigin(req)) { res.writeHead(403); res.end(); return; } // these spend your credit
     if (path === '/api/chat' && req.method === 'POST') return await chat(req, res);
+    if (path === '/api/decide' && req.method === 'POST') return await decide(req, res);
     if (path.includes('..')) throw new Error('bad path');
     let file = join(ROOT, path);
     if ((await stat(file)).isDirectory()) file = join(file, 'index.html');
@@ -100,4 +123,4 @@ const server = createServer(async (req, res) => {
   }
 });
 attachOutputs(server, outputs);
-server.listen(PORT, HOST, () => console.log(`Patchwerk → http://localhost:${PORT}  (assistant: ${MODEL}; outputs: ${outputLabels(outputs).join(', ') || 'none'})`));
+server.listen(PORT, HOST, () => console.log(`Patchwerk → http://localhost:${PORT}  (assistant: ${MODEL}; DJ: ${DJ_MODEL}; outputs: ${outputLabels(outputs).join(', ') || 'none'})`));

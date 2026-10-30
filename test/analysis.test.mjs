@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { analyze } from '../src/audio/analysis.js';
 import { createReader } from '../src/audio/features.js';
 
-function synth({ bpm, bars = 24, sr = 44100, lead = 0.37, bassline = true }) {
+function synth({ bpm, bars = 24, sr = 44100, lead = 0.37, bassline = true, plays = () => true }) {
   const beat = 60 / bpm;
   const dur = lead + bars * 4 * beat + 1;
   const out = new Float32Array(Math.ceil(dur * sr));
@@ -29,15 +29,18 @@ function synth({ bpm, bars = 24, sr = 44100, lead = 0.37, bassline = true }) {
   const kicks = [], barStarts = [];
   for (let i = 0; i < bars * 4; i++) {
     const t = lead + i * beat;
-    kicks.push(t);
+    const bar = Math.floor(i / 4);
     if (i % 4 === 0) barStarts.push(t);
     let ph = 0;
-    add(t, 0.3, (x) => {
-      ph += (2 * Math.PI * (48 + 110 * Math.exp(-x / 0.03))) / sr;
-      return 0.9 * Math.sin(ph) * Math.exp(-x / 0.14);
-    });
-    if (i % 4 === 1 || i % 4 === 3) add(t, 0.2, hpNoise(0.6, 0.05));
-    add(t + beat / 2, 0.06, hpNoise(0.35, 0.015));
+    if (plays('kick', bar)) {
+      kicks.push(t);
+      add(t, 0.3, (x) => {
+        ph += (2 * Math.PI * (48 + 110 * Math.exp(-x / 0.03))) / sr;
+        return 0.9 * Math.sin(ph) * Math.exp(-x / 0.14);
+      });
+    }
+    if (plays('clap', bar) && (i % 4 === 1 || i % 4 === 3)) add(t, 0.2, hpNoise(0.6, 0.05));
+    if (plays('hat', bar)) add(t + beat / 2, 0.06, hpNoise(0.35, 0.015));
     if (i % 16 === 0) add(t, 1.2, hpNoise(0.25, 0.5));
   }
   if (bassline) {
@@ -46,7 +49,7 @@ function synth({ bpm, bars = 24, sr = 44100, lead = 0.37, bassline = true }) {
     for (let k = 0; k < bars * 8; k++) {
       const f = notes[k % notes.length];
       const t0 = lead + k * (beat / 2) + beat / 4;
-      add(t0, beat / 2 - 0.01, (x) => 0.12 * (((x * f) % 1) * 2 - 1) * Math.exp(-x / 0.2));
+      if (plays('bass', Math.floor(k / 8))) add(t0, beat / 2 - 0.01, (x) => 0.12 * (((x * f) % 1) * 2 - 1) * Math.exp(-x / 0.2));
     }
   }
   return { samples: out, sr, kicks, barStarts, beat };
@@ -77,6 +80,45 @@ for (const bpm of [100, 128, 140]) {
   });
 }
 
+test('finds sections where the arrangement changes, and names the breakdown and the drop', () => {
+  // bar:  0 ─ kick + hats ─ 8 ─ everything ─ 24 ─ bass and hats only ─ 32 ─ everything ─ 48
+  const full = (b) => (b >= 8 && b < 24) || b >= 32;
+  const plays = (part, b) => {
+    if (part === 'hat') return true;
+    if (part === 'kick') return b < 24 || b >= 32;
+    return part === 'bass' ? b >= 8 : full(b);
+  };
+  const bpm = 128, lead = 0.37, bars = 48;
+  const { samples, sr } = synth({ bpm, bars, lead, plays });
+  const a = analyze(samples, sr);
+  const barLength = (60 / bpm) * 4;
+  const truth = [8, 24, 32].map((b) => lead + b * barLength);
+  const starts = a.sections.slice(1).map((s) => s.start);
+  for (const t of truth) assert.ok(starts.some((s) => Math.abs(s - t) < barLength / 2), `no section starts near ${t.toFixed(1)} s: ${starts.map((s) => s.toFixed(1))}`);
+  assert.equal(a.sections.length, truth.length + 1, `extra sections: ${a.sections.map((s) => `${s.start.toFixed(1)} ${s.label}`).join(', ')}`);
+
+  const at = (t) => a.sections.find((s) => t >= s.start && t < s.end);
+  assert.equal(at(truth[1] + 2 * barLength).label, 'breakdown');
+  assert.equal(at(truth[2] + 2 * barLength).label, 'drop');
+
+  const reader = createReader(a);
+  const bar = reader.features(truth[1] + 0.1).barIndex;
+  const s = reader.sectionAtBar(bar + 2);
+  assert.equal(s.label, 'breakdown');
+  assert.equal(s.into, 2);
+  assert.equal(s.left, 6);
+  assert.equal(s.next.label, 'drop');
+  assert.ok(Math.abs(reader.barTime(bar) - truth[1]) < 0.05, `bar ${bar} starts at ${reader.barTime(bar)}`);
+});
+
+test('a track that never changes is one section', () => {
+  const { samples, sr } = synth({ bpm: 128, bars: 32 });
+  const a = analyze(samples, sr);
+  assert.equal(a.sections.length, 1, a.sections.map((s) => `${s.start.toFixed(1)} ${s.label}`).join(', '));
+  assert.equal(a.sections[0].start, 0);
+  assert.ok(Math.abs(a.sections[0].end - a.duration) < 1e-6);
+});
+
 test('features stay in range and envelopes peak on kicks', () => {
   const { samples, sr, kicks } = synth({ bpm: 128, bars: 8 });
   const a = analyze(samples, sr);
@@ -100,4 +142,6 @@ test('silence does not produce NaN or beats', () => {
   const f = r.features(1.5);
   for (const v of Object.values(f)) assert.ok(Number.isFinite(v));
   assert.equal(a.onsets.kick.times.length, 0);
+  assert.equal(a.sections.length, 1);
+  assert.ok(r.sectionAtBar(0));
 });

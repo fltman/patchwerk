@@ -5,7 +5,7 @@ import { placeNodes } from '../graph/layout.js';
 
 const list = (xs) => xs.join(', ') || '(none)';
 
-function coerce(def, name, value) {
+export function coerce(def, name, value) {
   const p = def.params?.find((q) => q.name === name);
   if (!p) throw new Error(`${def.type} has no param "${name}" (params: ${list((def.params ?? []).map((q) => q.name))})`);
   if (p.type === 'select') {
@@ -163,7 +163,8 @@ export function describePatch(graph, { selected = [] } = {}) {
     const d = p && isFloatParam(p) && !p.raw ? ` depth ${+(to.depth[l.toPort] ?? 0.5).toFixed(2)}` : '';
     return `${l.from}.${l.fromPort} → ${l.to}.${l.toPort}${d}`;
   });
-  return `nodes:\n${lines.join('\n') || '(none)'}\ncables:\n${cables.join('\n') || '(none)'}`;
+  const rig = graph.rig ? `\nDJ rig: ${graph.rig.groups.map((g) => `${g.name} (${g.moves.map((m) => m.name).join(', ')})`).join('; ')}` : '';
+  return `nodes:\n${lines.join('\n') || '(none)'}\ncables:\n${cables.join('\n') || '(none)'}${rig}`;
 }
 
 export { isImage };

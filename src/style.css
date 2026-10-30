@@ -238,3 +238,24 @@ main { flex: 1; display: flex; min-height: 0; }
 body.present #preview { position: fixed; inset: 0; z-index: 200; aspect-ratio: auto; max-height: none !important; }
 body.present .preview-tools, body.capture .toast { display: none; }
 body.capture .graph-hint { display: none; }
+
+/* ── live DJ ─────────────────────────────────────────── */
+.btn.dj-toggle { font-weight: 700; }
+.btn.dj-toggle.active { border-color: var(--image); }
+.btn.dj-toggle.live { background: var(--image); border-color: var(--image); color: #10130c; }
+.dj { position: absolute; left: 0; right: 0; bottom: 0; z-index: 25; background: rgba(24, 25, 30, 0.97); border-top: 1px solid var(--line-2); box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45); }
+.chat:not(.hidden) ~ .dj { right: 390px; }
+.dj-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.dj-title { font-weight: 700; color: var(--image); white-space: nowrap; }
+.dj-status { color: var(--text); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dj-meta { color: var(--muted); font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dj-groups { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; max-height: 240px; overflow-y: auto; }
+.dj-row { display: flex; align-items: stretch; gap: 6px; }
+.dj-group { width: 84px; flex-shrink: 0; align-self: center; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.dj-pad { position: relative; flex: 1 1 0; min-width: 0; padding: 7px 8px 9px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel-2); cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dj-pad:hover { border-color: #5a606d; }
+.dj-pad i { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--float); transition: width 0.25s; }
+.dj-pad.on { background: color-mix(in srgb, var(--image) 28%, var(--panel-2)); border-color: var(--image); color: #fff; }
+.dj-pad.next { border-color: var(--accent); animation: dj-next 0.5s ease-in-out infinite alternate; }
+@keyframes dj-next { to { background: color-mix(in srgb, var(--accent) 35%, var(--panel-2)); } }
+.dj-empty { color: var(--muted); padding: 6px 0; }

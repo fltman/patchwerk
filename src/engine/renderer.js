@@ -42,6 +42,7 @@ export class Renderer {
 
     this.snapWaiters = [];
     this.tap = null;
+    this.meter = null;
     this.dirty = true;
     graph.addEventListener('change', (e) => {
       if (e.detail.kind === 'structure' || e.detail.kind === 'load') this.dirty = true;
@@ -306,6 +307,7 @@ export class Renderer {
     const outTex = outNode ? this.outputTex(outNode.id) : this.black;
     this.drawTexture(outTex);
     this.tap?.frame(outTex, this.w, this.h); // Syphon / Spout / NDI, when one is on
+    this.meter?.frame(outTex); // what the live DJ sees
     this.frameCount++;
     if (this.snapWaiters.length) this.takeSnapshots();
   }

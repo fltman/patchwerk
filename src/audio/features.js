@@ -81,5 +81,18 @@ export function createReader(a) {
 
   const frameAt = (t) => Math.max(0, Math.min(n - 1, Math.round(t * fr)));
 
-  return { features, frameAt, beatPosition, period, analysis: a };
+  // the time a bar starts, numbered like barIndex above
+  const barTime = (bar) => beatTime(a.downbeat + bar * 4);
+  const energyAt = (t) => sample(a.energy, t);
+
+  // the section a bar falls in, how far into it that is, and what comes next
+  function sectionAtBar(bar) {
+    const list = a.sections ?? [];
+    if (!list.length) return null;
+    const i = Math.max(0, list.findLastIndex((s) => s.bar <= bar));
+    const s = list[i];
+    return { ...s, index: i, into: Math.max(0, bar - s.bar), left: Math.max(0, s.bar + s.bars - bar), next: list[i + 1] ?? null };
+  }
+
+  return { features, frameAt, beatPosition, barTime, energyAt, sectionAtBar, period, analysis: a };
 }

@@ -11,6 +11,9 @@ import { PRESETS } from './presets.js';
 import { isImage } from './nodes/index.js';
 import { Chat } from './ai/chat.js';
 import { Outputs } from './ui/outputs.js';
+import { DJ } from './dj/dj.js';
+import { PictureMeter } from './dj/picture.js';
+import { DJPanel } from './ui/dj.js';
 
 const $ = (id) => document.getElementById(id);
 const PATCH_KEY = 'patchwerk.patch.v1';
@@ -40,9 +43,12 @@ function busy(text, progress) {
   }
 }
 editor.addEventListener('message', (e) => toast(e.detail.text));
-const chat = new Chat({ graph, editor, renderer, transport, toast });
+const dj = new DJ({ graph, transport });
+renderer.meter = new PictureMeter(renderer.gl, (stats) => { dj.picture = stats; });
+const chat = new Chat({ graph, editor, renderer, transport, dj, toast });
 document.getElementById('ai-btn').onclick = () => chat.toggle();
-window.patchwerk.chat = chat;
+const djPanel = new DJPanel({ dj, graph, chat, transport });
+Object.assign(window.patchwerk, { chat, dj, djPanel });
 
 // ── patch persistence ───────────────────────────────────
 function loadPatch(json) {
@@ -179,6 +185,8 @@ function drawOverview() {
     c.fillStyle = (((i - a.downbeat) / 4) | 0) % 4 === 0 ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.1)';
     c.fillRect(x, 0, 1, 5 * dpr);
   });
+  c.fillStyle = 'rgba(255,255,255,0.55)';
+  for (const s of a.sections ?? []) c.fillRect(Math.round((s.start / a.duration) * W), 0, 1, H);
 }
 function drawPlayhead(t) {
   const c = ov.getContext('2d');
@@ -274,6 +282,9 @@ let last = performance.now(), lastThumbs = 0, frames = 0, fpsAt = last;
 // One frame of everything. `time`/`playing` come from the transport, or from the
 // capture tool, which steps through a track frame by frame for perfectly synced video.
 function step(now, time, playing, wallDt, everyThumb = false) {
+  dj.tick();
+  for (const id of dj.touched) editor.refreshNode(id);
+  dj.touched.clear();
   const visible = tab === 'graph' ? editor.visibleNodes() : [];
   const visibleImage = visible.filter((id) => isImage(graph.def(graph.nodes.get(id))));
   let thumbs = null;

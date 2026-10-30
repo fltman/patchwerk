@@ -71,8 +71,24 @@ Add a node of type \`glsl\` and give it code with the \`code\` operation. Its un
   uniform int p_mode; // A|B|C          → dropdown
 Then define vec4 render(vec2 uv) (uv 0..1, bottom-left origin), GLSL ES 3.00. Available: u_time, u_res, u_aspect, centered(uv) (aspect-correct, origin centre), rot2(a), hsv2rgb, cosPalette, hash12, snoise(vec3), fbm(vec3, octaves), sdCircle, sdBox, fillSd(d), spectrum(x), wave(x), PI, TAU. Return premultiplied colour and never negative values.
 
+## Live DJ rigs
+The user can ask for a rig: a patch made to be performed by the live DJ, a fast decision model that changes the picture while the music plays. It can only choose between moves you list. It can't add modules, write code or explain itself, so everything it will ever need must be in the rig before the set starts.
+1. Patch the rig with edit_patch. 3–4 looks, each a small chain of 1–3 image nodes that reacts to the music on its own, go into one Merge (mode Add, gainA..gainD). Everything upstream renders all the time, so stay under about 16 image nodes in total. After the Merge comes the shared finishing: effects resting at zero, ready to come in (Feedback with decay 0, RGB Split, Glitch with amount 0), then Bloom, then Output. The looks should differ clearly from each other: colour, motion, shape, and how calm they are.
+2. Call set_rig with 2–4 groups. A group is one decision, such as look, texture or intensity.
+   - Moves in a group are alternatives: each should set the same knobs, so it fully replaces the one before. A look move sets all four Merge gains (1 for its look, 0 for the rest).
+   - The first move of each group is its home, a state you know looks right. The DJ starts there and returns there if the picture goes black or white.
+   - The description is all the DJ reads. Say what it looks like and when it belongs: "Slow violet smoke, nearly still. For breakdowns and quiet passages."
+   - question: one sentence, such as "Which look suits the next phrase?". brief: one or two sentences on how to play this rig, in the user's spirit.
+   - every: bars between decisions. 16 with on_section true for looks, 8 for texture, 4 for intensity.
+   - glide: bars a move takes. 2–4 for a crossfade between looks, 1 for knobs, 0 to cut on the downbeat.
+   - ordered: true when moves run from least to most (calm → wild); the DJ then places the music on that scale.
+   - ops are edit_patch operations with real node ids, limited to set, connect and disconnect. A connect into a port replaces the cable there, which is how a move changes what the music drives.
+3. Always call audition, once for each group, and look at every picture before you reply. A rig that hasn't been auditioned isn't finished. Fix anything dull, black, blown out or too alike with edit_patch, send set_rig again if the moves changed, and audition what you changed.
+4. Only then tell the user it's ready: open ◉ DJ and press Start.
+
 ## Tools
 - edit_patch: a list of operations applied in order, as one undo step. New nodes get a \`ref\` you choose; later operations in the same call can use that ref instead of an id. The result tells you the real ids, and any errors — if something fails, fix it in another edit_patch call.
+- set_rig and audition: see Live DJ rigs.
 - look: a snapshot of the current output picture. When you have built something new or changed how it looks, call look before you reply, and fix what is clearly off (washed out, black, cluttered, unreadable text, an effect far stronger than the user asked for) with another edit_patch — do it rather than offer to. Also look when the user complains about how it looks. While the track is paused the picture is a still.
 
 ## Replying
@@ -127,6 +143,57 @@ export const TOOLS = [
       name: 'look',
       description: 'See a snapshot of the current output picture.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_rig',
+      description: 'Save the moves the live DJ may play on this patch. Replaces any earlier rig. Build the patch first.',
+      parameters: {
+        type: 'object',
+        properties: {
+          brief: { type: 'string', description: 'One or two sentences on how to play this rig' },
+          groups: {
+            type: 'array',
+            description: 'One decision each: look, texture, intensity…',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Letters, digits and _' },
+                question: { type: 'string', description: 'The one sentence the DJ answers, like "Which look suits the next phrase?"' },
+                every: { type: 'integer', enum: [1, 2, 4, 8, 16, 32], description: 'Bars between decisions' },
+                on_section: { type: 'boolean', description: 'Also decide when a new section of the track starts' },
+                ordered: { type: 'boolean', description: 'Moves run from least to most, calm to wild' },
+                moves: {
+                  type: 'array',
+                  description: '2–26 alternatives. The first is home.',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      name: { type: 'string', description: 'Letters, digits and _' },
+                      description: { type: 'string', description: 'What it looks like and when it belongs' },
+                      glide: { type: 'number', description: 'Bars the move takes; 0 cuts on the downbeat' },
+                      ops: { type: 'array', description: 'edit_patch operations with real ids: set, connect, disconnect', items: { type: 'object' } },
+                    },
+                    required: ['name', 'description', 'ops'],
+                  },
+                },
+              },
+              required: ['name', 'question', 'moves'],
+            },
+          },
+        },
+        required: ['brief', 'groups'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'audition',
+      description: 'Play every move of the rig in turn and get back a measurement and a small picture of each. Leaves the rig on its home moves.',
+      parameters: { type: 'object', properties: { group: { type: 'string', description: 'Only this group; leave out for all' } } },
     },
   },
 ];

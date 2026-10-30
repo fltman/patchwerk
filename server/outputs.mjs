@@ -192,14 +192,17 @@ function session(ws, available) {
   status();
 }
 
+// a page served from here, not any website you happen to visit
+export function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try { return new URL(origin).host === req.headers.host; } catch { return false; }
+}
+
 export function attachOutputs(server, available) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 << 20 });
   server.on('upgrade', (req, socket, head) => {
-    // only pages served from here may drive the outputs (not any website you visit)
-    const origin = req.headers.origin;
-    let same = !origin;
-    try { same ||= new URL(origin).host === req.headers.host; } catch { /* bad origin */ }
-    if (new URL(req.url, 'http://x').pathname !== '/api/out' || !same) return socket.destroy();
+    if (new URL(req.url, 'http://x').pathname !== '/api/out' || !sameOrigin(req)) return socket.destroy();
     wss.handleUpgrade(req, socket, head, (ws) => session(ws, available));
   });
 }

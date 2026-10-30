@@ -33,6 +33,8 @@ Chrome/Edge/Arc recommended.
   Runs Claude Sonnet 5.5 through OpenRouter: `OPENROUTER_API_KEY` must be set
   where you run `npm start` (the key stays on the server; it listens on
   127.0.0.1 only). Override the model with `PATCHWERK_MODEL`.
+- **◉ DJ:** let a decision model perform the patch live, on the beat. The assistant
+  builds the rig first; see [Live DJ](#live-dj).
 - **GLSL tab:** read the shader of any node, *Fork* it into a live-editable GLSL
   node, or write your own — `uniform float p_amount; // 0 1 0.5` in the code
   becomes a patchable slider.
@@ -69,8 +71,54 @@ pinch / ⌘-scroll zooms.
 - `src/engine/` — one fullscreen fragment pass per image node into its own
   float framebuffer; control nodes run in JS first. Feedback nodes ping-pong.
   `tap.js` reads the output back for Syphon / Spout / NDI (`server/outputs.mjs`).
+- `src/dj/` is the live DJ: `rig.js` checks a rig, `choose.js` turns it into
+  questions and answers into moves, `dj.js` runs the loop on the beat grid.
 - `src/nodes/` — the node library. **`src/nodes/CONTRACT.md` is the contract**
   for writing nodes (uniform naming, premultiplied alpha, integrated speeds).
+
+## Live DJ
+
+The assistant prepares the set and a decision model performs it. Decision models
+are fast but can only pick from options you list, so the two do different jobs:
+
+1. **The assistant builds a rig.** Click **◉ DJ → Build rig…**, add what kind of set
+   you want, and press Enter. It patches several looks into one mixer, keeps effects
+   ready at zero, writes the moves in plain language, then auditions every move and
+   fixes what looks wrong. The example patch **DJ rig** is ready to play as it is.
+2. **The DJ plays it.** Press **Start**. On every downbeat it tells the model about
+   the music and the picture, and the answer lands on the next downbeat.
+
+Moves only change knobs and cables on modules that are already there, so nothing
+compiles during a set and the DJ can't break the patch. The rig is saved with the
+patch, and a set adds one undo step when you press Stop.
+
+- **Code decides when, the model decides what.** Each group of moves has its own
+  pace, counted from the start of the section, and can also change when a new section
+  starts. The model rates the moves; the choice is drawn from those odds, so the
+  same moment doesn't always get the same answer, and a move that has been on for a
+  long time slowly loses out.
+- **It can see ahead.** The track is analysed in advance, so the model is told a
+  drop is two bars away. The picture is measured from the output: brightness,
+  saturation and motion, never an image.
+- **Nothing depends on the network.** A late or failed answer means no change that
+  bar, and the picture carries on. After four failures in a row it asks every 8 bars.
+  A wrong key or no credit stops the DJ and says so.
+- **Code catches a blank picture.** If the output stays black or white for two bars
+  while the music plays, every group goes back to its first move.
+- **The pads are yours too.** Click one to play it on the next downbeat, ahead of the
+  model. With the DJ stopped it plays at once. The bar under a pad shows the model's
+  odds, and the panel shows the answer time and what the set has cost.
+
+Measured on an M-series Mac with the 12-module example rig at 1280 × 720: 60 fps,
+every move within 0.05 beats of the downbeat, and answers in about 0.45 s, which
+leaves plenty of room in a bar. A set costs about a cent an hour on
+`inception/mercury-decide`, and building a rig about 8 cents. Set
+`PATCHWERK_DJ_MODEL` to try another [decision model](https://openrouter.ai/docs/guides/community/jev);
+keep a choice to 26 moves or fewer, because some models refuse more.
+
+Sections are found from how the music changes, and named from energy and whether
+the kick plays. Treat the names as hints: they are checked against tracks with a
+known arrangement, not against human labels.
 
 ## Syphon, Spout and NDI
 
@@ -116,6 +164,9 @@ npm run interact        # drive the editor with a real mouse
 npm run presets         # screenshot every example patch → test/out/
 npm run perf            # frame cost per example on the real GPU
 npm run outputs         # Syphon + NDI end to end on the real GPU (macOS, Google Chrome)
+npm run dj              # the live DJ on the real GPU, with forced lateness and failures
+npm run dj-live         # the real decision model plays the example rig (a fraction of a cent)
+npm run dj-build        # the assistant builds a rig, the DJ plays it (about 8 cents)
 npm run ai-live         # the assistant against the real model (spends a few cents)
 ```
 

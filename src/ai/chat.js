@@ -1,9 +1,11 @@
 // The patch assistant: a chat panel that turns descriptions into patches.
 // The browser runs the tool loop (it owns the graph); the server only relays to the model.
 import { applyOps, describePatch } from './ops.js';
+import { checkRig } from '../dj/rig.js';
+import { audition } from '../dj/audition.js';
 
 const STORE = 'patchwerk.chat.v1';
-const MAX_ROUNDS = 8;
+const MAX_ROUNDS = 14; // a rig takes several rounds: patch, moves, audition, fixes
 const fmtTime = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
 function escapeHtml(s) {
@@ -18,8 +20,8 @@ function richText(s) {
 }
 
 export class Chat {
-  constructor({ graph, editor, renderer, transport, toast }) {
-    Object.assign(this, { graph, editor, renderer, transport, toast });
+  constructor({ graph, editor, renderer, transport, dj, toast }) {
+    Object.assign(this, { graph, editor, renderer, transport, dj, toast });
     this.panel = document.getElementById('chat');
     this.log = document.getElementById('chat-log');
     this.input = document.getElementById('chat-input');
@@ -54,7 +56,9 @@ export class Chat {
     const head = a
       ? `[Patch right now — track "${t.name}", ${t.playing ? 'playing' : 'paused'} at ${fmtTime(t.time)} of ${fmtTime(t.duration)}, ${a.bpm.toFixed(1)} BPM]`
       : '[Patch right now — no track loaded]';
-    return `${head}\n${describePatch(this.graph, { selected: [...this.editor.selected] })}`;
+    const sections = a?.sections?.length ? `\nSections: ${a.sections.map((s) => `${fmtTime(s.start)} ${s.label} (${s.bars} bars)`).join(', ')}` : '';
+    const rig = this.graph.rig ? `\nThe rig in full: ${JSON.stringify(this.graph.rig)}` : '';
+    return `${head}${sections}\n${describePatch(this.graph, { selected: [...this.editor.selected] })}${rig}`;
   }
 
   async send(text = this.input.value.trim()) {
@@ -145,6 +149,25 @@ export class Chat {
         return `Snapshot taken at ${fmtTime(t.time)} (${t.playing ? 'playing' : 'paused'}). It follows in the next message.`;
       } catch (e) {
         return `Could not take a snapshot: ${e.message}`;
+      }
+    }
+    if (call.function.name === 'set_rig') {
+      const { rig, problems, notes } = checkRig(this.graph, args);
+      const lines = problems.length ? problems.map((p) => `✗ ${p}`) : [`✓ rig saved: ${rig.groups.map((g) => `${g.name} (${g.moves.length} moves)`).join(', ')}`, ...notes.map((n) => `⚠ ${n}`)];
+      this.add({ kind: 'ops', lines });
+      if (problems.length) return `The rig was not saved. Fix these and send it again:\n${lines.join('\n')}`;
+      this.graph.setRig(rig);
+      this.graph.commit();
+      return `${lines.join('\n')}\n\nThe rig isn't ready yet: call audition now, once for each group, and look at every picture before you reply.`;
+    }
+    if (call.function.name === 'audition') {
+      try {
+        const r = await audition({ dj: this.dj, renderer: this.renderer, transport: this.transport, group: args.group });
+        images.push(...r.images);
+        for (const url of r.images) this.add({ kind: 'look', url });
+        return `${r.lines.join('\n')}${r.images.length ? '\nThe rig is back on its home moves. The images follow in the next message, in this order.' : ''}`;
+      } catch (e) {
+        return `Could not audition: ${e.message}`;
       }
     }
     return `Unknown tool ${call.function.name}`;

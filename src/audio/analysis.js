@@ -155,6 +155,7 @@ export function analyze(samples, sampleRate, onProgress = () => {}) {
   const slow = movingAverage(levelRaw, Math.round(fr));
   const lo = percentile(slow, 0.05), hi = percentile(slow, 0.95);
   const energy = slow.map((v) => clamp01((v - lo) / Math.max(1e-9, hi - lo)));
+  const sections = findSections({ beats, downbeat, frameRate: fr, duration: samples.length / sampleRate, features: [level, ...Object.values(bands)], onsets, energy });
 
   onProgress(1);
   return {
@@ -173,6 +174,7 @@ export function analyze(samples, sampleRate, onProgress = () => {}) {
     bpm,
     beats,
     downbeat,
+    sections,
   };
 }
 
@@ -357,4 +359,79 @@ function findDownbeat(beatFrames, flux, features) {
     if (score[k] > bestScore) { bestScore = score[k]; best = k; }
   }
   return best;
+}
+
+// Where the music changes. Every bar gets a fingerprint — loudness per band and
+// how busy each drum is — and a section starts where the bars ahead stop sounding
+// like the bars behind. Bars are numbered like features().barIndex.
+const SECTION_WINDOW = 4; // bars compared on each side
+const MIN_SECTION = 4;    // bars
+const SECTION_NOVELTY = 1; // in standard deviations of the fingerprint
+function findSections({ beats, downbeat, frameRate, duration, features, onsets, energy }) {
+  const bars = [];
+  for (let i = downbeat; i < beats.length; i += 4) bars.push(beats[i]);
+  const nb = bars.length;
+  const span = nb > 1 ? bars[1] - bars[0] : duration;
+  const barEnd = (b) => (b + 1 < nb ? bars[b + 1] : bars[b] + span);
+  const frames = (b) => [Math.floor(bars[b] * frameRate), Math.floor(barEnd(b) * frameRate)];
+  const avg = (arr, a, b) => { let s = 0; for (let f = a; f < b && f < arr.length; f++) s += arr[f]; return s / Math.max(1, b - a); };
+  const hits = ({ times, strengths }, a, b) => { let s = 0; times.forEach((t, i) => { if (t >= a && t < b) s += strengths[i]; }); return s; };
+  const kick = Array.from({ length: nb }, (_, b) => hits(onsets.kick, bars[b], barEnd(b)));
+
+  const prints = bars.map((_, b) => [
+    ...features.map((arr) => avg(arr, ...frames(b))),
+    kick[b], hits(onsets.snare, bars[b], barEnd(b)), hits(onsets.hat, bars[b], barEnd(b)),
+  ]);
+  const size = prints[0]?.length ?? 0;
+  const sd = new Array(size).fill(0).map((_, k) => {
+    const m = prints.reduce((s, v) => s + v[k], 0) / Math.max(1, nb);
+    return Math.max(0.03, Math.sqrt(prints.reduce((s, v) => s + (v[k] - m) ** 2, 0) / Math.max(1, nb)));
+  });
+  const novelty = new Float64Array(nb);
+  for (let b = SECTION_WINDOW; b + SECTION_WINDOW <= nb; b++) {
+    let sum = 0;
+    for (let k = 0; k < size; k++) {
+      let d = 0;
+      for (let i = 0; i < SECTION_WINDOW; i++) d += prints[b + i][k] - prints[b - 1 - i][k];
+      sum += (d / SECTION_WINDOW / sd[k]) ** 2;
+    }
+    novelty[b] = Math.sqrt(sum / size);
+  }
+
+  // the strongest changes first, then anything far enough from those
+  const cuts = [];
+  const peak = (b) => novelty[b] >= (novelty[b - 1] ?? 0) && novelty[b] >= (novelty[b + 1] ?? 0);
+  [...novelty.keys()].filter((b) => novelty[b] >= SECTION_NOVELTY && peak(b)).sort((x, y) => novelty[y] - novelty[x])
+    .forEach((b) => { if (cuts.every((c) => Math.abs(c - b) >= MIN_SECTION)) cuts.push(b); });
+  cuts.sort((x, y) => x - y);
+
+  const edges = [0, ...cuts, nb];
+  const sections = [];
+  for (let i = 0; i + 1 < edges.length; i++) {
+    const [first, next] = [edges[i], edges[i + 1]];
+    const start = i === 0 ? 0 : bars[first];
+    const end = next >= nb ? duration : bars[next];
+    sections.push({
+      start, end, bar: first, bars: Math.max(0, next - first),
+      energy: avg(energy, Math.floor(start * frameRate), Math.floor(end * frameRate)),
+      drums: nb ? kick.slice(first, next).reduce((s, v) => s + v, 0) / Math.max(1, next - first) : 0,
+    });
+  }
+  labelSections(sections);
+  return sections.map(({ drums, ...s }) => s);
+}
+
+// A rough name for each section from its energy, its neighbours and whether the kick plays.
+function labelSections(sections) {
+  const busiest = Math.max(1e-6, ...sections.map((s) => s.drums));
+  sections.forEach((s, i) => {
+    const prev = sections[i - 1], next = sections[i + 1];
+    const noKick = s.drums < busiest * 0.35;
+    const lifted = prev && (s.energy > prev.energy + 0.1 || prev.drums < busiest * 0.35) && !noKick;
+    if (!prev && next && s.energy < next.energy - 0.1) s.label = 'intro';
+    else if (!next && prev && s.energy < prev.energy - 0.1) s.label = 'outro';
+    else if (noKick) s.label = prev?.label === 'intro' ? 'build' : 'breakdown';
+    else if (lifted) s.label = 'drop';
+    else s.label = 'groove';
+  });
 }

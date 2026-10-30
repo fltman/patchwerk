@@ -1,5 +1,5 @@
 // The patch: nodes, cables between ports, and undo history.
-// Emits 'change' events with detail.kind: 'structure' | 'param' | 'move' | 'load'.
+// Emits 'change' events with detail.kind: 'structure' | 'param' | 'move' | 'load' | 'rig'.
 import { defFor, getDef, inputPorts, outputPorts, DEFAULT_CODE } from '../nodes/index.js';
 
 export class Graph extends EventTarget {
@@ -7,6 +7,7 @@ export class Graph extends EventTarget {
     super();
     this.nodes = new Map();
     this.links = new Map();
+    this.rig = null; // the moves a live DJ may play on this patch (src/dj/rig.js)
     this.nextId = 1;
     this._order = null;
     this.history = [];
@@ -115,6 +116,11 @@ export class Graph extends EventTarget {
     this.changed('param');
   }
 
+  setRig(rig) {
+    this.rig = rig;
+    this.changed('rig');
+  }
+
   moveNode(id, x, y) {
     const node = this.nodes.get(id);
     if (!node) return;
@@ -176,12 +182,14 @@ export class Graph extends EventTarget {
       version: 1,
       nodes: [...this.nodes.values()].map((n) => ({ ...n, params: { ...n.params }, depth: { ...n.depth } })),
       links: [...this.links.values()].map((l) => ({ ...l })),
+      ...(this.rig ? { rig: this.rig } : {}),
     };
   }
 
   load(json) {
     this.nodes.clear();
     this.links.clear();
+    this.rig = json.rig ?? null;
     let max = 0;
     const num = (id) => Number(String(id).slice(1)) || 0;
     for (const n of json.nodes ?? []) {

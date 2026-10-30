@@ -15,6 +15,7 @@
     </nav>
     <button id="add-btn" class="btn accent" title="Add a node (Tab)">+ Node</button>
     <button id="ai-btn" class="btn ai" title="Describe what you want and let the assistant patch it (⌘K)">✦ AI</button>
+    <button id="dj-btn" class="btn dj-toggle" title="Let a decision model perform this patch, live">◉ DJ</button>
     <div class="spacer"></div>
     <label class="field">Example
       <select id="examples"></select>
@@ -53,6 +54,18 @@
           <textarea id="chat-input" rows="3" placeholder="Describe the visuals you want…" spellcheck="false"></textarea>
           <button id="chat-send" class="btn accent" type="submit">Send</button>
         </form>
+      </aside>
+      <aside id="dj" class="dj hidden">
+        <div class="dj-head">
+          <span class="dj-title">◉ Live DJ</span>
+          <button id="dj-start" class="btn small accent">Start</button>
+          <button id="dj-build" class="btn small" title="Ask the assistant to build a rig for this track">Build rig…</button>
+          <span id="dj-status" class="dj-status"></span>
+          <span class="spacer"></span>
+          <span id="dj-meta" class="dj-meta"></span>
+          <button id="dj-close" class="btn small" title="Close">✕</button>
+        </div>
+        <div id="dj-groups" class="dj-groups"></div>
       </aside>
     </section>
 
