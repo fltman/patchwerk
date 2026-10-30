@@ -38,6 +38,11 @@ Chrome/Edge/Arc recommended.
   becomes a patchable slider.
 - **Output:** fullscreen (double-click the preview) or ● REC to record video
   with sound. Patches save to the browser automatically; *Save / Open* for files.
+- **Send it to other apps:** tick **Syphon** (macOS), **Spout** (Windows) or
+  **NDI** under the preview, and the picture shows up as a source called
+  *Patchwerk* in Resolume, MadMapper, TouchDesigner, OBS, VDMX and the like. NDI
+  also reaches other machines on the network. It runs at the chosen resolution, up
+  to 60 fps. See [Syphon, Spout and NDI](#syphon-spout-and-ndi).
 
 <kbd>Space</kbd> play · <kbd>⌫</kbd> delete · <kbd>⌘D</kbd> duplicate ·
 <kbd>⌘Z</kbd>/<kbd>⇧⌘Z</kbd> undo/redo · <kbd>F</kbd> frame all · scroll pans,
@@ -63,8 +68,43 @@ pinch / ⌘-scroll zooms.
   the DOM/SVG editor, the add-node menu.
 - `src/engine/` — one fullscreen fragment pass per image node into its own
   float framebuffer; control nodes run in JS first. Feedback nodes ping-pong.
+  `tap.js` reads the output back for Syphon / Spout / NDI (`server/outputs.mjs`).
 - `src/nodes/` — the node library. **`src/nodes/CONTRACT.md` is the contract**
   for writing nodes (uniform naming, premultiplied alpha, integrated speeds).
+
+## Syphon, Spout and NDI
+
+A web page can't publish video to other apps, so the page reads every finished
+frame back from the GPU (asynchronously, already flipped and in BGRA) and streams
+it over a WebSocket to the local server, which hands it on:
+
+| | Platform | How |
+|---|---|---|
+| **Syphon** | macOS | [`@napolab/texture-bridge`](https://github.com/naporin0624/electron-texture-bridge), which bundles Syphon.framework |
+| **Spout** | Windows (64-bit) | Spout's own `SpoutLibrary.dll` (2.007.018, in `vendor/spout/`) through [koffi](https://koffi.dev) |
+| **NDI** | macOS, Windows, Linux | [`grandi`](https://github.com/tux-tn/grandi), which bundles the NDI runtime |
+
+These are optional dependencies: `npm install` pulls in what your platform
+supports, and the server prints which outputs it offers when it starts. Only
+pages served by Patchwerk itself may open the stream.
+
+Measured on an Apple M5 Mac with Syphon and NDI both on: Patchwerk keeps
+drawing at 60 fps with the example patches at 1280 × 720 and 1920 × 1080, the
+readback costs 2–3 ms of main-thread time per frame, and both receivers get
+60 fps. `npm run outputs` checks size, orientation, colour and frame rate end to
+end. It reads Syphon through Syphon's own OpenGL client (`test/syphon-probe.m`)
+and NDI through an NDI receiver.
+
+Notes:
+- The stream stops when the tab is hidden, as rendering does. Keep the window
+  visible on a screen. Chrome may also pause rendering in a window that is fully
+  covered by others; start it with `--disable-backgrounding-occluded-windows` if
+  that bites.
+- **Spout has not been run yet:** there was no Windows machine to test on. The
+  DLL calls were checked against the DLL's own code (see `vendor/spout/README.md`).
+  It needs the Microsoft Visual C++ Redistributable (x64). If it fails, the server
+  prints why and the switch turns itself off.
+- NDI® is a registered trademark of Vizrt NDI AB — [ndi.video](https://ndi.video).
 
 ## Tests
 
@@ -75,6 +115,7 @@ npm run smoke           # boot the app headless and play the demo
 npm run interact        # drive the editor with a real mouse
 npm run presets         # screenshot every example patch → test/out/
 npm run perf            # frame cost per example on the real GPU
+npm run outputs         # Syphon + NDI end to end on the real GPU (macOS, Google Chrome)
 npm run ai-live         # the assistant against the real model (spends a few cents)
 ```
 

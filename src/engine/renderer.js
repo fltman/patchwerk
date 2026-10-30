@@ -41,6 +41,7 @@ export class Renderer {
     this.waveBuf = new Float32Array(512);
 
     this.snapWaiters = [];
+    this.tap = null;
     this.dirty = true;
     graph.addEventListener('change', (e) => {
       if (e.detail.kind === 'structure' || e.detail.kind === 'load') this.dirty = true;
@@ -302,7 +303,9 @@ export class Renderer {
     // ── output ──
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.w, this.h);
-    this.drawTexture(outNode ? this.outputTex(outNode.id) : this.black);
+    const outTex = outNode ? this.outputTex(outNode.id) : this.black;
+    this.drawTexture(outTex);
+    this.tap?.frame(outTex, this.w, this.h); // Syphon / Spout / NDI, when one is on
     this.frameCount++;
     if (this.snapWaiters.length) this.takeSnapshots();
   }

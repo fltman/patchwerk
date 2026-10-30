@@ -1,14 +1,17 @@
 // Static server (no build step) + /api/chat, which forwards the patch assistant's
-// conversation to OpenRouter. The API key stays here; the browser never sees it.
+// conversation to OpenRouter (the API key stays here; the browser never sees it),
+// + /api/out, which publishes the picture to Syphon, Spout and NDI.
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { extname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { systemPrompt, TOOLS } from './src/ai/catalog.js';
+import { attachOutputs, availableOutputs, outputLabels } from './server/outputs.mjs';
 
 const PORT = Number(process.env.PORT) || 8270;
 const HOST = process.env.HOST || '127.0.0.1'; // local only: /api/chat spends your OpenRouter credit
 const MODEL = process.env.PATCHWERK_MODEL || 'anthropic/claude-sonnet-5.5';
-const ROOT = new URL('.', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -77,9 +80,10 @@ async function chat(req, res) {
   res.end(JSON.stringify({ message: { role, content: content ?? '', ...(tool_calls?.length ? { tool_calls } : {}) }, finish: choice.finish_reason, usage: r.json.usage, model: r.json.model }));
 }
 
-createServer(async (req, res) => {
+const outputs = await availableOutputs();
+const server = createServer(async (req, res) => {
   try {
-    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname));
+    const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (path === '/api/chat' && req.method === 'POST') return await chat(req, res);
     if (path.includes('..')) throw new Error('bad path');
     let file = join(ROOT, path);
@@ -94,4 +98,6 @@ createServer(async (req, res) => {
       res.end(api ? JSON.stringify({ error: e.message }) : 'not found');
     }
   }
-}).listen(PORT, HOST, () => console.log(`Patchwerk → http://localhost:${PORT}  (assistant: ${MODEL})`));
+});
+attachOutputs(server, outputs);
+server.listen(PORT, HOST, () => console.log(`Patchwerk → http://localhost:${PORT}  (assistant: ${MODEL}; outputs: ${outputLabels(outputs).join(', ') || 'none'})`));

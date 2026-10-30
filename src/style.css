@@ -193,6 +193,8 @@ main { flex: 1; display: flex; min-height: 0; }
 
 .settings { display: flex; align-items: center; gap: 14px; padding: 8px 12px; border-top: 1px solid var(--line); flex-wrap: wrap; }
 .fps { margin-left: auto; color: var(--muted); font: 11px ui-monospace, Menlo, monospace; }
+.outputs { display: flex; align-items: center; gap: 14px; }
+.outputs .live { color: var(--image); }
 .help { padding: 6px 12px 14px; color: var(--muted); border-top: 1px solid var(--line); }
 .help summary { cursor: pointer; padding: 6px 0; color: var(--text); font-weight: 600; }
 .help ul { margin: 4px 0 0; padding-left: 18px; line-height: 1.6; }

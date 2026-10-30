@@ -10,6 +10,7 @@ import { saveTrack, loadTrack } from './ui/storage.js';
 import { PRESETS } from './presets.js';
 import { isImage } from './nodes/index.js';
 import { Chat } from './ai/chat.js';
+import { Outputs } from './ui/outputs.js';
 
 const $ = (id) => document.getElementById(id);
 const PATCH_KEY = 'patchwerk.patch.v1';
@@ -327,7 +328,10 @@ if (CAPTURE) {
 let saved = null;
 try { saved = JSON.parse(localStorage.getItem(PATCH_KEY)); } catch { /* ignore */ }
 loadPatch(saved?.nodes?.length ? saved : structuredClone(PRESETS[0].patch));
-if (!CAPTURE) requestAnimationFrame(loop);
+if (!CAPTURE) {
+  window.patchwerk.outputs = new Outputs({ renderer, toast });
+  requestAnimationFrame(loop);
+}
 const last_ = CAPTURE ? null : await loadTrack().catch(() => null);
 if (last_) await useTrack(last_.name, async () => last_.data, false);
 else if (!CAPTURE) await loadDemo();

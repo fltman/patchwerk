@@ -12,7 +12,8 @@
     "interact": "node test/interact.mjs",
     "presets": "node test/presets.mjs",
     "perf": "node test/perf.mjs",
-    "ai-live": "node test/ai-live.mjs"
+    "ai-live": "node test/ai-live.mjs",
+    "outputs": "node test/outputs.mjs"
   },
   "devDependencies": {
     "playwright": "1.64.1"
@@ -21,5 +22,13 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/fltman/patchwerk"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
+  "optionalDependencies": {
+    "@napolab/texture-bridge": "0.15.0",
+    "grandi": "^2.0.2",
+    "koffi": "^3.3.5"
   }
 }
