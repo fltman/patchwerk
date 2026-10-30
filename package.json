@@ -16,7 +16,8 @@
     "outputs": "node test/outputs.mjs",
     "dj": "node test/dj.mjs",
     "dj-live": "node test/dj.mjs --live",
-    "dj-build": "node test/dj.mjs --build"
+    "dj-build": "node test/dj.mjs --build",
+    "live": "node test/live.mjs"
   },
   "devDependencies": {
     "playwright": "1.64.1"

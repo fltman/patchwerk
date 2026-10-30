@@ -18,11 +18,14 @@ export class Transport extends EventTarget {
     this.startedAt = 0;
     this.playing = false;
     this.loop = true;
+    this.live = null;   // a live source standing in for the track
+    this.file = null;   // the track, while it does
   }
 
   get duration() { return this.buffer?.duration ?? 0; }
 
   get time() {
+    if (this.live) return this.live.time;
     if (!this.playing) return this.offset;
     const latency = this.ctx.outputLatency || this.ctx.baseLatency || 0;
     let t = this.ctx.currentTime - this.startedAt - latency;
@@ -35,6 +38,29 @@ export class Transport extends EventTarget {
   async load(arrayBuffer, name, onProgress = () => {}) {
     const buffer = await this.ctx.decodeAudioData(arrayBuffer);
     await this.setBuffer(buffer, name, onProgress);
+  }
+
+  // The live source's clock takes over. Its own window plays the sound, so nothing is heard here.
+  goLive(live) {
+    if (this.live) return;
+    this.pause();
+    this.file = { buffer: this.buffer, mono: this.mono, reader: this.reader, name: this.name };
+    this.live = live;
+    Object.assign(this, { buffer: null, mono: live.samples, reader: live.reader, name: 'Soundwerk, live', playing: live.running });
+    this.emit();
+  }
+
+  leaveLive() {
+    if (!this.live) return;
+    this.live = null;
+    Object.assign(this, this.file, { file: null, playing: false });
+    this.emit();
+  }
+
+  liveChanged() {
+    if (!this.live) return;
+    this.playing = this.live.running;
+    this.emit();
   }
 
   async setBuffer(buffer, name, onProgress = () => {}) {
@@ -53,6 +79,7 @@ export class Transport extends EventTarget {
       worker.onerror = (e) => { reject(new Error(e.message)); worker.terminate(); };
       worker.postMessage({ samples: copy, sampleRate: buffer.sampleRate }, [copy.buffer]);
     });
+    this.leaveLive();
     this.stopSource();
     this.playing = false;
     this.buffer = buffer;
@@ -64,7 +91,7 @@ export class Transport extends EventTarget {
   }
 
   play() {
-    if (!this.buffer || this.playing) return;
+    if (!this.buffer || this.playing || this.live) return;
     this.ctx.resume();
     const s = this.ctx.createBufferSource();
     s.buffer = this.buffer;
@@ -85,7 +112,7 @@ export class Transport extends EventTarget {
   }
 
   pause() {
-    if (!this.playing) return;
+    if (!this.playing || this.live) return;
     this.offset = this.time;
     this.stopSource();
     this.playing = false;
@@ -95,6 +122,7 @@ export class Transport extends EventTarget {
   toggle() { this.playing ? this.pause() : this.play(); }
 
   seek(t) {
+    if (this.live) return;
     const was = this.playing;
     if (was) { this.stopSource(); this.playing = false; }
     this.offset = Math.max(0, Math.min(t, this.duration));

@@ -21,6 +21,12 @@ Chrome/Edge/Arc recommended.
   analysed once, up front: tempo, a tracked beat grid, bar phase, kick / snare /
   hat onsets, five frequency bands, slow energy, a log spectrum. Without a file
   you get a built-in acid techno loop. The last track is remembered.
+- **Or Soundwerk goes in.** With [Soundwerk](https://github.com/fltman/soundwerk) running on
+  the same machine, press **◉ Soundwerk** here and **⇢ Patchwerk** there, and the pictures
+  follow the wall live, with no track and nothing to analyse: Soundwerk sends its Clock, its
+  drum hits and the shape of its DJ set, and its sound for the bands and scopes. Every node and
+  the DJ work as they do with a track. Patchwerk stays silent, since Soundwerk plays the sound,
+  so ● REC records the picture without it.
 - **Patch.** Double-click the grid or press <kbd>Tab</kbd> to add a node. Drag
   from a jack to a jack. Green cables carry images, orange cables carry
   control signals (0..1) into any slider — or into a dropdown, so a Sequencer can
@@ -66,6 +72,7 @@ pinch / ⌘-scroll zooms.
 - `src/audio/` — offline analysis (`analysis.js`, in a worker), a reader that
   answers "what is the music doing at time t" (`features.js`), the transport and
   the demo track. Everything is a function of track time, so scrubbing is exact.
+  `live.js` is the same reader fed live from Soundwerk, through `server/live.mjs`.
 - `src/graph/` — the patch model (topological order, no cycles, snapshot undo),
   the DOM/SVG editor, the add-node menu.
 - `src/engine/` — one fullscreen fragment pass per image node into its own
@@ -165,6 +172,7 @@ npm run presets         # screenshot every example patch → test/out/
 npm run perf            # frame cost per example on the real GPU
 npm run outputs         # Syphon + NDI end to end on the real GPU (macOS, Google Chrome)
 npm run dj              # the live DJ on the real GPU, with forced lateness and failures
+npm run live        # Soundwerk and Patchwerk together in real Chrome, muted
 npm run dj-live         # the real decision model plays the example rig (a fraction of a cent)
 npm run dj-build        # the assistant builds a rig, the DJ plays it (about 8 cents)
 npm run ai-live         # the assistant against the real model (spends a few cents)

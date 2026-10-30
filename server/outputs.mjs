@@ -202,8 +202,11 @@ export function sameOrigin(req) {
 export function attachOutputs(server, available) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 << 20 });
   server.on('upgrade', (req, socket, head) => {
-    if (new URL(req.url, 'http://x').pathname !== '/api/out' || !sameOrigin(req)) return socket.destroy();
+    const path = new URL(req.url, 'http://x').pathname;
+    if (path === '/api/live') return undefined;   // live.mjs has that one
+    if (path !== '/api/out' || !sameOrigin(req)) return socket.destroy();
     wss.handleUpgrade(req, socket, head, (ws) => session(ws, available));
+    return undefined;
   });
 }
 

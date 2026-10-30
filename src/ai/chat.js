@@ -53,7 +53,7 @@ export class Chat {
   context() {
     const t = this.transport;
     const a = t.reader?.analysis;
-    const head = a
+    const head = a?.live ? `[Patch right now — following Soundwerk live, ${t.playing ? 'playing' : 'stopped'}, ${a.bpm.toFixed(1)} BPM]` : a
       ? `[Patch right now — track "${t.name}", ${t.playing ? 'playing' : 'paused'} at ${fmtTime(t.time)} of ${fmtTime(t.duration)}, ${a.bpm.toFixed(1)} BPM]`
       : '[Patch right now — no track loaded]';
     const sections = a?.sections?.length ? `\nSections: ${a.sections.map((s) => `${fmtTime(s.start)} ${s.label} (${s.bars} bars)`).join(', ')}` : '';

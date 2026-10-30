@@ -1,13 +1,15 @@
 // Static server (no build step) + /api/chat, which forwards the patch assistant's
 // conversation to OpenRouter (the API key stays here; the browser never sees it),
 // + /api/decide, which does the same for the live DJ's decisions,
-// + /api/out, which publishes the picture to Syphon, Spout and NDI.
+// + /api/out, which publishes the picture to Syphon, Spout and NDI,
+// + /api/live, which brings in what Soundwerk is playing.
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { systemPrompt, TOOLS } from './src/ai/catalog.js';
 import { attachOutputs, availableOutputs, outputLabels, sameOrigin } from './server/outputs.mjs';
+import { attachLive } from './server/live.mjs';
 
 const PORT = Number(process.env.PORT) || 8270;
 const HOST = process.env.HOST || '127.0.0.1'; // local only: /api/chat spends your OpenRouter credit
@@ -123,4 +125,5 @@ const server = createServer(async (req, res) => {
   }
 });
 attachOutputs(server, outputs);
+attachLive(server);
 server.listen(PORT, HOST, () => console.log(`Patchwerk → http://localhost:${PORT}  (assistant: ${MODEL}; DJ: ${DJ_MODEL}; outputs: ${outputLabels(outputs).join(', ') || 'none'})`));

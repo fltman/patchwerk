@@ -4,6 +4,7 @@ import { Editor } from './graph/editor.js';
 import { AddMenu } from './graph/menu.js';
 import { Renderer } from './engine/renderer.js';
 import { Transport } from './audio/transport.js';
+import { LiveInput } from './audio/live.js';
 import { renderDemoTrack } from './audio/demoTrack.js';
 import { CodePanel } from './ui/code.js';
 import { saveTrack, loadTrack } from './ui/storage.js';
@@ -130,6 +131,40 @@ const loadDemo = () => useTrack('Patchwerk demo — acid loop (130 BPM)', () => 
 const loadFile = (file) => useTrack(file.name, () => file.arrayBuffer(), true);
 
 $('play').onclick = () => transport.toggle();
+
+// ── live input: when Soundwerk sends, the pictures can follow it instead of the track ──
+const live = new LiveInput();
+window.patchwerk.live = live;
+let wantLive = false;   // stays on when Soundwerk goes away, so a reload over there picks up again
+function follow(on) {
+  if (on) transport.goLive(live.analysis);
+  else transport.leaveLive();
+  showLive();
+  drawOverview();
+}
+function showLive() {
+  const b = $('live-btn');
+  const waiting = wantLive && !transport.live;
+  b.classList.toggle('on', !!transport.live);
+  b.classList.toggle('wait', waiting);
+  b.classList.toggle('ready', live.available && !transport.live);
+  b.title = transport.live ? 'Following Soundwerk. Click to go back to the track'
+    : waiting ? 'Waiting for Soundwerk: press ⇢ Patchwerk over there. Click to stop waiting'
+      : live.available ? 'Soundwerk is sending. Click to follow it'
+        : 'Follow what Soundwerk is playing instead of the track';
+}
+$('live-btn').onclick = () => {
+  wantLive = !wantLive;
+  if (wantLive && !live.available) toast('Waiting for Soundwerk: press ⇢ Patchwerk over there');
+  follow(wantLive && live.available);
+};
+live.addEventListener('change', () => transport.liveChanged());
+live.addEventListener('source', () => {
+  if (live.available && (wantLive || !transport.playing)) { wantLive = true; follow(true); toast('Following Soundwerk'); }
+  else if (live.available) { showLive(); toast('Soundwerk is sending: press ◉ Soundwerk to follow it'); }
+  else if (transport.live) { follow(false); toast('Soundwerk has gone'); }
+  else showLive();
+});
 $('load').onclick = () => $('load-file').click();
 $('load-file').onchange = (e) => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; };
 $('demo').onclick = loadDemo;
@@ -166,7 +201,7 @@ function drawOverview() {
   const W = ovStatic.width, H = ovStatic.height;
   c.clearRect(0, 0, W, H);
   const r = transport.reader;
-  if (!r) return;
+  if (!r || transport.live) return;
   const a = r.analysis;
   for (let x = 0; x < W; x++) {
     const f0 = Math.floor((x / W) * a.frames), f1 = Math.max(f0 + 1, Math.floor(((x + 1) / W) * a.frames));
@@ -301,7 +336,7 @@ function step(now, time, playing, wallDt, everyThumb = false) {
     const f = transport.reader.features(time, 0.2);
     METERS.forEach((k, i) => { meterEls[i].style.height = `${Math.min(1, f[k]) * 100}%`; });
   }
-  $('time').textContent = `${fmtTime(time)} / ${fmtTime(transport.duration)}`;
+  $('time').textContent = transport.live ? `${fmtTime(time)} live` : `${fmtTime(time)} / ${fmtTime(transport.duration)}`;
   drawPlayhead(time);
   if (recorder) $('rec-time').textContent = `● ${fmtTime((now - recStart) / 1000)}`;
   frames++;
@@ -346,3 +381,4 @@ if (!CAPTURE) {
 const last_ = CAPTURE ? null : await loadTrack().catch(() => null);
 if (last_) await useTrack(last_.name, async () => last_.data, false);
 else if (!CAPTURE) await loadDemo();
+if (!CAPTURE) live.connect();   // after the track, which would otherwise knock the page off it

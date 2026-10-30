@@ -151,7 +151,7 @@ export class Renderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 128, 128, gl.RED, gl.UNSIGNED_BYTE, this.sgBuf);
     if (mono) {
       // scope-style trigger: start the window on a rising zero crossing
-      const end = Math.floor(time * sampleRate);
+      const end = reader.sampleEnd?.() ?? Math.floor(time * sampleRate);
       let s0 = end - 2048;
       for (let i = s0; i < end - 1024; i++) {
         if ((mono[i - 1] ?? 0) <= 0 && (mono[i] ?? 0) > 0) { s0 = i; break; }
