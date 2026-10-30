@@ -231,3 +231,8 @@ main { flex: 1; display: flex; min-height: 0; }
 .chat-form textarea { flex: 1; resize: none; background: #121317; border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.4; outline: none; }
 .chat-form textarea:focus { border-color: #6d4bd6; }
 .chat.busy .chat-form .btn { background: #6b6f7a; border-color: #6b6f7a; }
+
+/* capture mode: the output alone, filling the frame */
+body.present #preview { position: fixed; inset: 0; z-index: 200; aspect-ratio: auto; max-height: none !important; }
+body.present .preview-tools, body.capture .toast { display: none; }
+body.capture .graph-hint { display: none; }

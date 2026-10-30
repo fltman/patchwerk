@@ -78,6 +78,17 @@ npm run perf            # frame cost per example on the real GPU
 npm run ai-live         # the assistant against the real model (spends a few cents)
 ```
 
+## Making videos
+
+The app has a frame-exact capture mode (`?capture`), so a video's visuals react
+to exactly the music under them:
+
+```bash
+node tools/bars.mjs song.mp3                       # bar start times + energy, to cut on the one
+node tools/record-chat.mjs chat.json "prompt" …    # record a real assistant session for replay
+node tools/capture.mjs shots.json                  # render shots → mp4 clips (format in the file header)
+```
+
 ## License
 
 MIT © 2026 Anders Bjarby

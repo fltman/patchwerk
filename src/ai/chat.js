@@ -125,6 +125,7 @@ export class Chat {
       const heightOf = (id) => this.editor.views.get(id)?.h || undefined;
       const r = applyOps(g, args.operations, { heightOf: (id) => heightOf(id) ?? 200 });
       g.commit();
+      for (const id of r.touched) this.editor.refreshNode(id);
       this.editor.syncPositions();
       if (r.added.length || r.cleared) this.editor.frameAll();
       // let the renderer compile anything new, then report shaders that don't build

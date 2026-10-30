@@ -164,7 +164,7 @@ export class Editor extends EventTarget {
     const body = el('div', 'node-body');
     root.append(body);
 
-    const v = { el: root, node, def, inputs: new Map(), outputs: new Map(), params: new Map(), selects: new Map(), thumb: null, code: node.code, w: 220, h: 200 };
+    const v = { el: root, node, def, inputs: new Map(), outputs: new Map(), params: new Map(), selects: new Map(), fields: new Map(), thumb: null, code: node.code, w: 220, h: 200 };
 
     const makePort = (dir, kind, name) => {
       const p = el('span', `port ${dir} ${kind}`);
@@ -200,13 +200,14 @@ export class Editor extends EventTarget {
         row.append(port, s.el);
         body.append(row);
         const depthRow = el('div', 'row depth-row');
+        let depth = null;
         if (!p.raw) {
-          const d = this.makeSlider(node, { name: p.name, label: 'mod depth', min: -1, max: 1, default: DEFAULT_DEPTH }, true);
-          depthRow.append(el('span', 'depth-icon', '⤷'), d.el);
+          depth = this.makeSlider(node, { name: p.name, label: 'mod depth', min: -1, max: 1, default: DEFAULT_DEPTH }, true);
+          depthRow.append(el('span', 'depth-icon', '⤷'), depth.el);
           body.append(depthRow);
         }
         v.inputs.set(p.name, { port, row, depthRow });
-        v.params.set(p.name, { ...s, p });
+        v.params.set(p.name, { ...s, p, depth });
       } else if (p.type === 'select') {
         const sel = el('select', 'select');
         p.options.forEach((o, i) => sel.append(new Option(o, i)));
@@ -223,6 +224,7 @@ export class Editor extends EventTarget {
         c.value = node.params[p.name];
         c.addEventListener('input', () => g.setParam(node.id, p.name, c.value));
         c.addEventListener('change', () => g.commit());
+        v.fields.set(p.name, c);
         row.append(el('span', 'plabel', p.label ?? p.name), c);
         body.append(row);
       } else if (p.type === 'text') {
@@ -232,6 +234,7 @@ export class Editor extends EventTarget {
         t.spellcheck = false;
         t.addEventListener('input', () => g.setParam(node.id, p.name, t.value));
         t.addEventListener('change', () => g.commit());
+        v.fields.set(p.name, t);
         row.classList.add('text-row');
         row.append(t);
         body.append(row);
@@ -644,9 +647,15 @@ export class Editor extends EventTarget {
     });
   }
 
-  refreshParams(id) {
+  // Show values changed from code (the assistant, scripts) — sliders, depths, colours, text.
+  refreshNode(id) {
     const v = this.views.get(id);
     if (!v) return;
-    for (const pv of v.params.values()) pv.show(pv.get());
+    for (const pv of v.params.values()) {
+      pv.show(pv.get());
+      pv.depth?.show(pv.depth.get());
+    }
+    for (const [name, f] of v.fields) if (f.value !== v.node.params[name]) f.value = v.node.params[name];
+    for (const [name, sel] of v.selects) sel.value = String(v.node.params[name]);
   }
 }

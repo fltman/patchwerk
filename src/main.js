@@ -270,16 +270,15 @@ addEventListener('keydown', (e) => {
 
 // ── the loop ────────────────────────────────────────────
 let last = performance.now(), lastThumbs = 0, frames = 0, fpsAt = last;
-function loop(now) {
-  const wallDt = Math.min(0.1, (now - last) / 1000);
-  last = now;
-  const time = transport.time;
+// One frame of everything. `time`/`playing` come from the transport, or from the
+// capture tool, which steps through a track frame by frame for perfectly synced video.
+function step(now, time, playing, wallDt, everyThumb = false) {
   const visible = tab === 'graph' ? editor.visibleNodes() : [];
   const visibleImage = visible.filter((id) => isImage(graph.def(graph.nodes.get(id))));
   let thumbs = null;
-  if (now - lastThumbs > 60) { thumbs = editor.thumbTargets(visibleImage); lastThumbs = now; }
+  if (everyThumb || now - lastThumbs > 60) { thumbs = editor.thumbTargets(visibleImage); lastThumbs = now; }
   renderer.frame({
-    time, dt: transport.playing ? wallDt : 0, wallDt, playing: transport.playing,
+    time, dt: playing ? wallDt : 0, wallDt, playing,
     reader: transport.reader, mono: transport.mono, sampleRate: transport.buffer?.sampleRate ?? 44100,
     visible: editor.thumbsOn ? visibleImage : [], thumbs,
   });
@@ -295,14 +294,40 @@ function loop(now) {
   if (recorder) $('rec-time').textContent = `● ${fmtTime((now - recStart) / 1000)}`;
   frames++;
   if (now - fpsAt > 500) { $('fps').textContent = `${Math.round((frames * 1000) / (now - fpsAt))} fps · ${graph.nodes.size} nodes`; frames = 0; fpsAt = now; }
+}
+function loop(now) {
+  const wallDt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  step(now, transport.time, transport.playing, wallDt);
   requestAnimationFrame(loop);
+}
+
+window.patchwerk.loadTrackUrl = (url, name) => useTrack(name ?? decodeURIComponent(url.split('/').pop()), () => fetch(url).then((r) => r.arrayBuffer()), false);
+
+// ── capture mode (?capture): no live loop; tools/capture.mjs drives frames ──
+const CAPTURE = new URLSearchParams(location.search).has('capture');
+if (CAPTURE) {
+  document.body.classList.add('capture');
+  window.patchwerk.capture = {
+    frame(t, fps = 30) {
+      step(t * 1000, t, true, 1 / fps, true);
+      $('play').textContent = '❚❚';
+      $('play').classList.add('playing');
+    },
+    loadTrackUrl: (url, name) => window.patchwerk.loadTrackUrl(url, name),
+    loadPatch: (json) => { graph.load(json); graph.commit(); editor.frameAll(); },
+    loadPreset: (name) => { const p = PRESETS.find((x) => x.name === name); graph.load(structuredClone(p.patch)); graph.commit(); editor.frameAll(); },
+    present(on) { document.body.classList.toggle('present', on); },
+    setTab,
+    setResolution: (v) => { $('resolution').value = v; setResolution(v); },
+  };
 }
 
 // ── boot ────────────────────────────────────────────────
 let saved = null;
 try { saved = JSON.parse(localStorage.getItem(PATCH_KEY)); } catch { /* ignore */ }
 loadPatch(saved?.nodes?.length ? saved : structuredClone(PRESETS[0].patch));
-requestAnimationFrame(loop);
-const last_ = await loadTrack().catch(() => null);
+if (!CAPTURE) requestAnimationFrame(loop);
+const last_ = CAPTURE ? null : await loadTrack().catch(() => null);
 if (last_) await useTrack(last_.name, async () => last_.data, false);
-else await loadDemo();
+else if (!CAPTURE) await loadDemo();

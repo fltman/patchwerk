@@ -112,6 +112,20 @@ try {
   const glslNode = await page.locator('.node.cat-custom .slider .slabel').allTextContents();
   check('the new uniform became a slider on the node', glslNode.includes('k'), glslNode.join(','));
 
+  // 10. values changed from code (the assistant) show on the sliders
+  const shown = await page.evaluate(() => {
+    const { graph, editor } = window.patchwerk;
+    const n = [...graph.nodes.values()].find((x) => x.type === 'transform');
+    const t = [...graph.nodes.values()].find((x) => x.type === 'track');
+    graph.connect(t.id, 'kick', n.id, 'zoom');
+    graph.setParam(n.id, 'zoom', 4);
+    graph.setDepth(n.id, 'zoom', -0.4);
+    editor.refreshNode(n.id);
+    const row = editor.views.get(n.id).params.get('zoom');
+    return { val: row.val.textContent, depth: row.depth.val.textContent, fill: row.fill.style.width };
+  });
+  check('values set from code show on the slider and its mod depth', shown.depth === '-40%' && shown.fill.startsWith('49'), JSON.stringify(shown));
+
   if (errors.length) console.log('page errors:\n' + errors.join('\n'));
   check('no page errors', errors.length === 0);
 } finally {
