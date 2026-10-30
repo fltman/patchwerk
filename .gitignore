@@ -1,0 +1,5 @@
+node_modules/
+vault/
+.obsidian/
+.DS_Store
+test/out/

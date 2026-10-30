@@ -1,0 +1,204 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Patchwerk — shader check</title>
+<canvas id="c" width="64" height="36"></canvas>
+<pre id="log"></pre>
+<script type="module">
+// Compiles every image node, then renders it at default / min / max params
+// into a small float framebuffer and looks for NaN/Inf and dead-black output.
+import { imageNodes } from '../src/nodes/index.js';
+import { composeFragment, parseShaderLog } from '../src/engine/compose.js';
+import { VERTEX } from '../src/engine/prelude.js';
+
+const Q = new URLSearchParams(location.search);
+const SHOTS = Q.has('shots');
+const W = Number(Q.get('w')) || 64, H = Number(Q.get('h')) || 36;
+document.getElementById('c').width = W; document.getElementById('c').height = H;
+const gl = document.getElementById('c').getContext('webgl2');
+const floatOk = !!gl.getExtension('EXT_color_buffer_float');
+const results = [];
+const CATS = ['generator', 'effect', 'mix', 'output', 'custom'];
+const NAME = /^[a-zA-Z][a-zA-Z0-9]*$/;
+
+function validate(def, seen) {
+  const e = [];
+  if (!def.type || !/^[a-z0-9-]+$/.test(def.type)) e.push('type must be lowercase-kebab');
+  if (seen.has(def.type)) e.push('duplicate type');
+  seen.add(def.type);
+  if (!def.title) e.push('missing title');
+  if (!CATS.includes(def.category)) e.push('bad category ' + def.category);
+  if (!def.description) e.push('missing description');
+  if (!/vec4\s+render\s*\(\s*vec2/.test(def.glsl || '')) e.push('glsl must define vec4 render(vec2 uv)');
+  for (const i of def.inputs ?? []) if (!NAME.test(i.name)) e.push('bad input name ' + i.name);
+  const names = new Set();
+  for (const p of def.params ?? []) {
+    if (p.type === 'text') continue;
+    if (!NAME.test(p.name)) e.push('bad param name ' + p.name);
+    if (names.has(p.name)) e.push('duplicate param ' + p.name);
+    names.add(p.name);
+    if (p.type === 'select') {
+      if (!Array.isArray(p.options) || !p.options.length) e.push(p.name + ': select needs options');
+      if (!(p.default >= 0 && p.default < p.options.length)) e.push(p.name + ': bad select default');
+    } else if (p.type === 'color') {
+      if (!/^#[0-9a-fA-F]{6}$/.test(p.default)) e.push(p.name + ': color default must be #rrggbb');
+    } else {
+      if (!(p.min < p.max)) e.push(p.name + ': min must be < max');
+      if (!(p.default >= p.min && p.default <= p.max)) e.push(p.name + ': default outside range');
+    }
+  }
+  return e;
+}
+
+function shader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  return s;
+}
+function tex(w, h, internal, format, type, data, filter = gl.LINEAR) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, format, type, data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+
+// test inputs: a colourful image, fake spectrum / spectrogram / waveform
+// test card: dark ground, grid, coloured discs, a word — so effects have something to chew on
+const card = document.createElement('canvas');
+card.width = W; card.height = H;
+const cx = card.getContext('2d');
+const g = cx.createLinearGradient(0, 0, W, H);
+g.addColorStop(0, '#0b0820'); g.addColorStop(1, '#1d0b2e');
+cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+cx.strokeStyle = 'rgba(120,255,200,0.35)'; cx.lineWidth = Math.max(1, W / 320);
+for (let x = 0; x <= W; x += W / 16) { cx.beginPath(); cx.moveTo(x, 0); cx.lineTo(x, H); cx.stroke(); }
+for (let y = 0; y <= H; y += H / 9) { cx.beginPath(); cx.moveTo(0, y); cx.lineTo(W, y); cx.stroke(); }
+[['#ff2a6d', 0.3, 0.45, 0.22], ['#05d9e8', 0.62, 0.55, 0.18], ['#f9c80e', 0.48, 0.3, 0.1]].forEach(([c, x, y, r]) => {
+  cx.fillStyle = c; cx.beginPath(); cx.arc(x * W, y * H, r * H, 0, Math.PI * 2); cx.fill();
+});
+cx.fillStyle = '#ffffff'; cx.font = `bold ${Math.round(H * 0.16)}px sans-serif`; cx.textAlign = 'center';
+cx.fillText('PATCHWERK', W / 2, H * 0.85);
+const imgTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, imgTex);
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, card);
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.generateMipmap(gl.TEXTURE_2D);
+const spec = new Float32Array(128).map((_, i) => Math.min(1, Math.max(0, 0.95 - i / 150 + 0.18 * Math.sin(i * 0.7) + (i % 13 === 0 ? 0.2 : 0))));
+const specTex = tex(128, 1, gl.R16F, gl.RED, gl.FLOAT, spec);
+const sg = new Float32Array(128 * 128).map((_, i) => ((i * 7919) % 101) / 100);
+const sgTex = tex(128, 128, gl.R16F, gl.RED, gl.FLOAT, sg);
+const wav = new Float32Array(512).map((_, i) => Math.sin(i / 512 * Math.PI * 8) * 0.7);
+const wavTex = tex(512, 1, gl.R16F, gl.RED, gl.FLOAT, wav);
+
+const target = tex(W, H, floatOk ? gl.RGBA16F : gl.RGBA8, gl.RGBA, floatOk ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE, null);
+const fbo = gl.createFramebuffer();
+gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target, 0);
+
+const quad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+const vs = shader(gl.VERTEX_SHADER, VERTEX);
+
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+
+function renderOnce(prog, def, variant) {
+  gl.useProgram(prog);
+  const loc = (n) => gl.getUniformLocation(prog, n);
+  gl.uniform1f(loc('u_time'), 1.234);
+  gl.uniform1f(loc('u_dt'), 1 / 60);
+  gl.uniform1i(loc('u_frame'), 74);
+  gl.uniform2f(loc('u_res'), W, H);
+  gl.uniform1f(loc('u_aspect'), W / H);
+  let unit = 0;
+  const bind = (name, t) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(loc(name), unit++); };
+  bind('u_spectrum', specTex); bind('u_spectrogram', sgTex); bind('u_wave', wavTex);
+  for (const i of def.inputs ?? []) bind('t_' + i.name, imgTex);
+  if (def.feedback) bind('t_prev', imgTex);
+  for (const s of def.samplers ?? []) bind('t_' + s, imgTex);
+  for (const p of def.params ?? []) {
+    if (p.type === 'text') continue;
+    if (p.type === 'select') gl.uniform1i(loc('p_' + p.name), p.default);
+    else if (p.type === 'color') gl.uniform3fv(loc('p_' + p.name), hex(p.default));
+    else {
+      const v = variant === 'min' ? p.min : variant === 'max' ? p.max : p.default;
+      gl.uniform1f(loc('p_' + p.name), v);
+      if (p.integrate) gl.uniform1f(loc('p_' + p.name + '_t'), v * 1.234);
+    }
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0.5, 0.5, 0.5, 0.5);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  const a = gl.getAttribLocation(prog, 'a_pos');
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.enableVertexAttribArray(a);
+  gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  const px = new Float32Array(W * H * 4);
+  if (floatOk) gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, px);
+  let bad = 0, sum = 0, max = 0, min = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    for (let c = 0; c < 4; c++) if (!Number.isFinite(px[i + c])) bad++;
+    for (let c = 0; c < 3; c++) if (Number.isFinite(px[i + c])) min = Math.min(min, px[i + c]);
+    const l = (px[i] + px[i + 1] + px[i + 2]) / 3;
+    if (Number.isFinite(l)) { sum += l; max = Math.max(max, l); }
+  }
+  let png;
+  if (SHOTS && variant === 'default') {
+    const out = document.createElement('canvas');
+    out.width = W; out.height = H;
+    const c2 = out.getContext('2d');
+    const id = c2.createImageData(W, H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const si = ((H - 1 - y) * W + x) * 4, di = (y * W + x) * 4;
+      for (let c = 0; c < 3; c++) id.data[di + c] = Math.max(0, Math.min(255, Math.pow(Math.max(0, px[si + c]), 1) * 255));
+      id.data[di + 3] = 255;
+    }
+    c2.putImageData(id, 0, 0);
+    png = out.toDataURL('image/png');
+  }
+  return { bad, min, png, mean: +(sum / (W * H)).toFixed(3), max: +max.toFixed(3) };
+}
+
+const seen = new Set();
+for (const def of imageNodes) {
+  const r = { type: def.type, category: def.category, ok: true, errors: [], warnings: [] };
+  results.push(r);
+  r.errors.push(...validate(def, seen));
+  let src;
+  try { src = composeFragment(def); } catch (e) { r.errors.push('compose: ' + e.message); r.ok = false; continue; }
+  const fs = shader(gl.FRAGMENT_SHADER, src);
+  if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+    r.errors.push(...parseShaderLog(gl.getShaderInfoLog(fs)).map((x) => `line ${x.line}: ${x.message}`));
+  } else {
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+    gl.bindAttribLocation(prog, 0, 'a_pos');
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) r.errors.push('link: ' + gl.getProgramInfoLog(prog));
+    else {
+      for (const v of ['default', 'min', 'max']) {
+        const o = renderOnce(prog, def, v);
+        if (v === 'default') { r.mean = o.mean; r.max = o.max; r.png = o.png; }
+        if (o.bad) r.errors.push(`${o.bad} NaN/Inf values at ${v} params`);
+        if (o.min < -0.01) r.errors.push(`negative colour (${o.min.toFixed(2)}) at ${v} params — clamp it`);
+        if (v === 'default' && o.max < 0.01) r.warnings.push('renders all black at default params');
+      }
+    }
+  }
+  r.ok = r.errors.length === 0;
+}
+window.__results = { floatOk, results };
+document.getElementById('log').textContent = JSON.stringify(window.__results, null, 2);
+</script>

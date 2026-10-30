@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Patchwerk — modular visuals for music</title>
+  <link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">◎</span> PATCHWERK</div>
+    <nav class="tabs">
+      <button data-tab="graph" class="active">Graph</button>
+      <button data-tab="code">GLSL</button>
+    </nav>
+    <button id="add-btn" class="btn accent" title="Add a node (Tab)">+ Node</button>
+    <button id="ai-btn" class="btn ai" title="Describe what you want and let the assistant patch it (⌘K)">✦ AI</button>
+    <div class="spacer"></div>
+    <label class="field">Example
+      <select id="examples"></select>
+    </label>
+    <button id="undo" class="btn icon" title="Undo (⌘Z)">↶</button>
+    <button id="redo" class="btn icon" title="Redo (⇧⌘Z)">↷</button>
+    <button id="save" class="btn" title="Download this patch as JSON">Save</button>
+    <button id="open" class="btn" title="Open a patch JSON">Open</button>
+    <input id="open-file" type="file" accept=".json,application/json" hidden>
+  </header>
+
+  <main>
+    <section class="left">
+      <div id="graph"></div>
+      <div id="code" class="code-panel hidden">
+        <div class="code-head">
+          <span id="code-title">Select an image node</span>
+          <span class="spacer"></span>
+          <button id="code-fork" class="btn hidden" title="Copy this node into an editable GLSL node">Fork to GLSL node</button>
+        </div>
+        <div class="code-body">
+          <pre id="code-gutter" class="gutter"></pre>
+          <textarea id="code-text" spellcheck="false" readonly></textarea>
+        </div>
+        <div id="code-errors" class="code-errors"></div>
+      </div>
+      <aside id="chat" class="chat hidden">
+        <div class="chat-head">
+          <span class="chat-title">✦ Patch assistant</span>
+          <span class="spacer"></span>
+          <button id="chat-new" class="btn small" title="Start a new conversation">New chat</button>
+          <button id="chat-close" class="btn small" title="Close (⌘K)">✕</button>
+        </div>
+        <div id="chat-log" class="chat-log"></div>
+        <form id="chat-form" class="chat-form">
+          <textarea id="chat-input" rows="3" placeholder="Describe the visuals you want…" spellcheck="false"></textarea>
+          <button id="chat-send" class="btn accent" type="submit">Send</button>
+        </form>
+      </aside>
+    </section>
+
+    <aside class="right">
+      <div class="preview" id="preview">
+        <canvas id="out"></canvas>
+        <div class="preview-tools">
+          <button id="rec" class="btn small" title="Record the output with sound">● REC</button>
+          <button id="fullscreen" class="btn small" title="Fullscreen (double-click the preview)">⛶</button>
+        </div>
+        <div id="rec-time" class="rec-time hidden"></div>
+      </div>
+
+      <div class="transport">
+        <button id="play" class="btn play" title="Play / pause (Space)">▶</button>
+        <div class="track-info">
+          <div id="track-name" class="track-name">No track</div>
+          <div class="track-meta"><span id="time">0:00 / 0:00</span> · <span id="bpm">— BPM</span></div>
+        </div>
+        <button id="load" class="btn" title="Load a music file (or drop one anywhere)">Load track</button>
+        <button id="demo" class="btn" title="The built-in acid techno loop">Demo</button>
+        <input id="load-file" type="file" accept="audio/*" hidden>
+      </div>
+      <canvas id="overview" class="overview" title="Click or drag to seek"></canvas>
+
+      <div class="rack" id="meters"></div>
+
+      <div class="settings">
+        <label class="field">Resolution
+          <select id="resolution">
+            <option value="640x360">640 × 360</option>
+            <option value="1280x720" selected>1280 × 720</option>
+            <option value="1920x1080">1920 × 1080</option>
+            <option value="1080x1080">1080 × 1080</option>
+            <option value="1080x1920">1080 × 1920</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="thumbs" checked> Node previews</label>
+        <span id="fps" class="fps"></span>
+      </div>
+
+      <details class="help">
+        <summary>How to patch</summary>
+        <ul>
+          <li><b>Add</b> a node: double-click the grid, press <kbd>Tab</kbd>, or drop a cable on empty space.</li>
+          <li><b>Patch</b>: drag from a jack to a jack. <span class="sw image"></span> image cables go into image inputs, <span class="sw float"></span> control cables into any slider.</li>
+          <li>A patched slider gets a <b>mod depth</b>: how far the cable pushes it from where you set it.</li>
+          <li><b>Unplug</b>: drag a cable off its input, double-click it, or ⌥-click it.</li>
+          <li><kbd>Space</kbd> play · <kbd>⌫</kbd> delete · <kbd>⌘D</kbd> duplicate · <kbd>⌘Z</kbd> undo · <kbd>F</kbd> frame all · scroll pans, pinch / ⌘-scroll zooms.</li>
+          <li>Double-click a node title to see its GLSL. Fork any node to edit it live.</li>
+        </ul>
+      </details>
+    </aside>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <div id="busy" class="busy hidden"><div class="busy-box"><div id="busy-text">Analysing…</div><div class="bar"><div id="busy-bar"></div></div></div></div>
+  <div id="drop" class="drop hidden">Drop a track to load it</div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

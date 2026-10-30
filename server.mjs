@@ -1,0 +1,97 @@
+// Static server (no build step) + /api/chat, which forwards the patch assistant's
+// conversation to OpenRouter. The API key stays here; the browser never sees it.
+import { createServer } from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { extname, join, normalize } from 'node:path';
+import { systemPrompt, TOOLS } from './src/ai/catalog.js';
+
+const PORT = Number(process.env.PORT) || 8270;
+const HOST = process.env.HOST || '127.0.0.1'; // local only: /api/chat spends your OpenRouter credit
+const MODEL = process.env.PATCHWERK_MODEL || 'anthropic/claude-sonnet-5.5';
+const ROOT = new URL('.', import.meta.url).pathname;
+const TYPES = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.md': 'text/markdown; charset=utf-8',
+};
+const SYSTEM = systemPrompt();
+
+async function readJson(req, limit = 8e6) {
+  let size = 0;
+  const chunks = [];
+  for await (const c of req) {
+    size += c.length;
+    if (size > limit) throw new Error('request too large');
+    chunks.push(c);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+async function openrouter(messages, reasoning) {
+  const body = {
+    model: MODEL,
+    max_tokens: 12000,
+    // the long, unchanging system prompt is cached between turns
+    messages: [{ role: 'system', content: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }] }, ...messages],
+    tools: TOOLS,
+    tool_choice: 'auto',
+  };
+  if (reasoning) body.reasoning = reasoning;
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': `http://localhost:${PORT}`,
+      'X-Title': 'Patchwerk',
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(180000),
+  });
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { json = { error: { message: text.slice(0, 300) } }; }
+  return { status: res.status, json };
+}
+
+async function chat(req, res) {
+  if (!process.env.OPENROUTER_API_KEY) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'OPENROUTER_API_KEY is not set in the environment that runs npm start.' }));
+    return;
+  }
+  const { messages } = await readJson(req);
+  // a little thinking helps it design; some endpoints refuse a reasoning setting, so retry without
+  let r = await openrouter(messages, { effort: 'low' });
+  if (r.status === 400 && /reason/i.test(JSON.stringify(r.json))) r = await openrouter(messages, null);
+  const choice = r.json.choices?.[0];
+  if (r.status !== 200 || !choice) {
+    const msg = r.json.error?.metadata?.raw || r.json.error?.message || `OpenRouter answered ${r.status}`;
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: String(msg).slice(0, 500) }));
+    return;
+  }
+  const { role, content, tool_calls } = choice.message;
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ message: { role, content: content ?? '', ...(tool_calls?.length ? { tool_calls } : {}) }, finish: choice.finish_reason, usage: r.json.usage, model: r.json.model }));
+}
+
+createServer(async (req, res) => {
+  try {
+    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname));
+    if (path === '/api/chat' && req.method === 'POST') return await chat(req, res);
+    if (path.includes('..')) throw new Error('bad path');
+    let file = join(ROOT, path);
+    if ((await stat(file)).isDirectory()) file = join(file, 'index.html');
+    const body = await readFile(file);
+    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    res.end(body);
+  } catch (e) {
+    if (!res.headersSent) {
+      const api = req.url.startsWith('/api/');
+      res.writeHead(api ? 500 : 404, { 'Content-Type': api ? 'application/json' : 'text/plain' });
+      res.end(api ? JSON.stringify({ error: e.message }) : 'not found');
+    }
+  }
+}).listen(PORT, HOST, () => console.log(`Patchwerk → http://localhost:${PORT}  (assistant: ${MODEL})`));
