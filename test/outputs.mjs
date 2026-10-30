@@ -85,7 +85,7 @@ async function ndiFps(rx, seconds) {
 // ── Chrome over a bare DevTools connection ──
 async function launchChrome(url) {
   const profile = mkdtempSync(join(tmpdir(), 'patchwerk-chrome-'));
-  const proc = spawn(CHROME, ['--headless=new', '--use-angle=metal', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required',
+  const proc = spawn(CHROME, ['--headless=new', '--mute-audio', '--use-angle=metal', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required',
     '--no-first-run', '--no-default-browser-check', '--window-size=1680,1000', '--remote-debugging-port=0', `--user-data-dir=${profile}`, url],
   { stdio: ['ignore', 'ignore', 'pipe'] });
   const port = await new Promise((ok, fail) => {
@@ -119,7 +119,13 @@ async function launchChrome(url) {
     for (const end = Date.now() + ms; Date.now() < end; await sleep(100)) if (await evaluate(fn, arg).catch(() => false)) return true;
     throw new Error(`timed out waiting for ${fn}`);
   };
-  const close = () => { ws.close(); proc.kill(); setTimeout(() => rmSync(profile, { recursive: true, force: true }), 500); };
+  // also on a crash: a headless Chrome left behind would keep running unseen
+  const close = async () => {
+    ws.close();
+    if (proc.exitCode === null) await new Promise((r) => { proc.once('exit', r); proc.kill(); });
+    rmSync(profile, { recursive: true, force: true });
+  };
+  process.once('exit', () => { if (proc.exitCode === null) proc.kill(); });
   return { evaluate, waitFor, events, close };
 }
 
@@ -212,7 +218,7 @@ try {
   check('the run finished', false, e.message);
 } finally {
   rx?.destroy();
-  chrome?.close();
+  await chrome?.close();
   stopping = true;
   server.kill();
 }
