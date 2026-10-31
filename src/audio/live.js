@@ -64,6 +64,7 @@ export class LiveAnalysis {
       // twice over: wherever the ring wraps, the spectrogram can read straight back through history
       spectrum: new Uint8Array(2 * HISTORY * SPEC_BINS),
       sections: [],
+      unscaled: (name) => this.raw[name][this.index], // a band or the level, for what has to outlast the window
     };
     this.setArc(null, 0);
     this.reader = this.makeReader();

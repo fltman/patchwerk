@@ -17,6 +17,7 @@
     "dj": "node test/dj.mjs",
     "dj-live": "node test/dj.mjs --live",
     "dj-build": "node test/dj.mjs --build",
+    "dj-ears": "node test/ears.mjs",
     "live": "node test/live.mjs"
   },
   "devDependencies": {

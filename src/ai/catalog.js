@@ -80,6 +80,7 @@ The user can ask for a rig: a patch made to be performed by the live DJ, a fast 
    - The description is all the DJ reads. Say what it looks like and when it belongs: "Slow violet smoke, nearly still. For breakdowns and quiet passages."
    - question: one sentence, such as "Which look suits the next phrase?". brief: one or two sentences on how to play this rig, in the user's spirit.
    - every: bars between decisions. 16 with on_section true for looks, 8 for texture, 4 for intensity.
+   - on_section: true for every group that should jump when the music changes. On a live input there are no sections to read ahead of time: the DJ listens, asks these groups the moment it hears a change, and lands the answer on the next beat within half a bar, whatever the glide.
    - glide: bars a move takes. 2–4 for a crossfade between looks, 1 for knobs, 0 to cut on the downbeat.
    - ordered: true when moves run from least to most (calm → wild); the DJ then places the music on that scale.
    - ops are edit_patch operations with real node ids, limited to set, connect and disconnect. A connect into a port replaces the cable there, which is how a move changes what the music drives.
@@ -163,7 +164,7 @@ export const TOOLS = [
                 name: { type: 'string', description: 'Letters, digits and _' },
                 question: { type: 'string', description: 'The one sentence the DJ answers, like "Which look suits the next phrase?"' },
                 every: { type: 'integer', enum: [1, 2, 4, 8, 16, 32], description: 'Bars between decisions' },
-                on_section: { type: 'boolean', description: 'Also decide when a new section of the track starts' },
+                on_section: { type: 'boolean', description: 'Also decide when a new section of the track starts, or on a live input the moment the music audibly changes' },
                 ordered: { type: 'boolean', description: 'Moves run from least to most, calm to wild' },
                 moves: {
                   type: 'array',

@@ -8,6 +8,8 @@ const el = (tag, cls, text) => {
   return e;
 };
 
+const DARING = 'patchwerk.dj.daring';
+
 export class DJPanel {
   constructor({ dj, graph, chat, transport }) {
     Object.assign(this, { dj, graph, chat, transport });
@@ -22,6 +24,11 @@ export class DJPanel {
     document.getElementById('dj-close').onclick = () => this.toggle(false);
     document.getElementById('dj-build').onclick = () => this.build();
     this.startBtn.onclick = () => (dj.running ? dj.stop() : dj.start());
+    const daring = document.getElementById('dj-daring');
+    daring.value = localStorage.getItem(DARING) ?? daring.value;
+    dj.daring = daring.value / 100;
+    daring.oninput = () => { dj.daring = daring.value / 100; localStorage.setItem(DARING, daring.value); };
+    daring.onkeydown = (e) => e.stopPropagation(); // arrows nudge the knob, not the patch
     dj.addEventListener('update', () => this.refresh());
     graph.addEventListener('change', (e) => { if (e.detail.kind === 'rig' || e.detail.kind === 'load') this.render(); });
     this.render();
@@ -79,8 +86,10 @@ export class DJPanel {
     const r = this.transport.reader;
     let line = dj.message;
     if (dj.running && r && dj.bar !== null) {
-      const s = r.sectionAtBar(dj.bar);
-      const where = s ? `${s.label}, ${s.left} bars left${s.next ? ` → ${s.next.label}` : ''}` : '';
+      const heard = r.analysis.live && dj.ear.now(dj.bar);
+      const s = !heard && r.sectionAtBar(dj.bar);
+      const where = heard ? [heard.section, heard.just_changed].filter(Boolean).join(', ')
+        : s ? `${s.label}, ${s.left} bars left${s.next ? ` → ${s.next.label}` : ''}` : '';
       line = [`bar ${dj.bar + 1}`, where, dj.message].filter(Boolean).join(' · ');
     }
     this.status.textContent = line;

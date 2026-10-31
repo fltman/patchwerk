@@ -92,8 +92,9 @@ are fast but can only pick from options you list, so the two do different jobs:
    you want, and press Enter. It patches several looks into one mixer, keeps effects
    ready at zero, writes the moves in plain language, then auditions every move and
    fixes what looks wrong. The example patch **DJ rig** is ready to play as it is.
-2. **The DJ plays it.** Press **Start**. On every downbeat it tells the model about
-   the music and the picture, and the answer lands on the next downbeat.
+2. **The DJ plays it.** Press **Start**. On each downbeat it asks the model about the
+   groups that are due, telling it about the music and the picture, and the answer
+   lands on the next downbeat.
 
 Moves only change knobs and cables on modules that are already there, so nothing
 compiles during a set and the DJ can't break the patch. The rig is saved with the
@@ -107,6 +108,18 @@ patch, and a set adds one undo step when you press Stop.
 - **It can see ahead.** The track is analysed in advance, so the model is told a
   drop is two bars away. The picture is measured from the output: brightness,
   saturation and motion, never an image.
+- **On a live input it listens instead.** Nothing can see ahead in music that is being
+  played, so the DJ reads no sections and no plan. It hears each beat against the same
+  beat in the bars before, and about two beats after the music changes it asks the
+  groups marked `on_section`. The answer lands on the next beat and the move takes half a
+  bar at most, so the picture turns within about a bar. The model is told what has just
+  happened: the section as it sounds, whether the kick left, the energy against the last
+  couple of minutes. It trusts the sound over the hit counts, so a muted kick counts as
+  gone as long as the low end falls with it. Pace counts from the last change it heard.
+- **Daring is yours to ride.** The knob sets how far the DJ strays from the model's
+  favourite. In the middle it plays the odds as they are. Left, the favourite nearly always
+  wins and moves are held twice as long. Right, long shots come up and it decides twice as
+  often. It works during a set and on tracks too.
 - **Nothing depends on the network.** A late or failed answer means no change that
   bar, and the picture carries on. After four failures in a row it asks every 8 bars.
   A wrong key or no credit stops the DJ and says so.

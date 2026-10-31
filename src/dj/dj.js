@@ -1,10 +1,13 @@
-// The live DJ performs a rig. On every downbeat it asks a decision model what
-// suits the next bar, and the answer lands on the next downbeat. Code decides when
+// The live DJ performs a rig. On each downbeat it asks a decision model about the
+// groups that are due, and the answer lands on the next downbeat. Code decides when
 // something may change and the model decides what; a late or failed answer means
-// nothing changes. Everything runs off the track's beat grid, so it follows what
-// you hear, and the picture never waits for the network.
+// nothing changes. Everything runs off the beat grid, so it follows what you hear,
+// and the picture never waits for the network.
+// A track says what comes next. A live input can't, so there the DJ goes by its ears:
+// when the music changes it asks at once, and the answer lands on the next beat.
 import { checkRig } from './rig.js';
 import { isDue, pickMove, questionsFor } from './choose.js';
+import { Ear } from './ear.js';
 import { applyOps } from '../ai/ops.js';
 
 const RECENT = 6;        // moves it remembers
@@ -17,6 +20,7 @@ const BLANK_BARS = 2;    // bars the picture must stay blank before the DJ steps
 const RESCUE_EVERY = 8;  // bars between rescues
 const GIVE_UP = 4;       // failures in a row; after this it asks only every 8 bars
 const MIN_LEAD = 0.3;    // seconds; a downbeat closer than this can't be reached, so don't ask
+const SNAP = 0.5;        // bars; the longest a move may take when it answers a change in the music
 const FATAL = new Set([401, 402, 403]); // no use trying again: key or credit
 
 async function askServer(body, signal) {
@@ -50,6 +54,10 @@ export class DJ extends EventTarget {
     this.log = [];
     this.picture = null;
     this.bar = null;
+    this.beat = null;
+    this.reaction = null;       // the request answering a change in the music
+    this.ear = new Ear();
+    this.daring = 0.5;          // 0..1, see choose.js
     this.message = '';
     this.resetStats();
     graph.addEventListener('change', (e) => {
@@ -84,6 +92,8 @@ export class DJ extends EventTarget {
     this.recent = [];
     this.log = [];
     this.bar = null;
+    this.beat = null;
+    this.reaction = null;
     this.blankBars = 0;
     this.rescuedAt = -Infinity;
     if (!transport.playing) transport.play();
@@ -120,8 +130,13 @@ export class DJ extends EventTarget {
     const time = this.transport.time;
     const pos = reader.beatPosition(time);
     this.stepGlides(pos);
-    if (!this.running || !playing) return;
+    const live = reader.analysis.live;
+    if (!playing || !(this.running || live)) return;
     const f = reader.features(time);
+    const heard = live && this.ear.hear(f, reader.analysis.unscaled); // from before you press Start, so it knows the set by then
+    if (!this.running) return;
+    if (heard) this.react(f.barIndex);
+    this.landOnBeat(Math.floor(pos));
     if (f.barIndex === this.bar) return;
     const jumped = this.bar !== null && f.barIndex !== this.bar + 1;
     this.bar = f.barIndex;
@@ -136,27 +151,35 @@ export class DJ extends EventTarget {
   // ── asking ────────────────────────────────────────────
   ask(bar) {
     const { reader } = this.transport;
-    if (this.stats.inRow >= GIVE_UP && bar % 8) return;
-    const section = reader.sectionAtBar(bar);
-    const due = this.rig.groups.filter((g) => !this.pending.has(g.name) && isDue(g, bar, section));
-    if (!due.length) return;
+    if (this.reaction || (this.stats.inRow >= GIVE_UP && bar % 8)) return;
+    const section = reader.analysis.live ? { bar: this.ear.changedBar ?? 0 } : reader.sectionAtBar(bar); // live phrases count from the last change
+    const due = this.rig.groups.filter((g) => !this.pending.has(g.name) && isDue(g, bar, section, this.daring));
+    if (due.length) this.request(bar, due, section);
+  }
+
+  // The music just changed: what was coming was meant for something else, and the phrase can't wait.
+  react(bar) {
+    const due = this.rig.groups.filter((g) => g.on_section);
+    if (!due.length || this.stats.inRow >= GIVE_UP) return;
+    for (const g of due) if (this.pending.get(g.name)?.by === 'dj') this.pending.delete(g.name);
+    this.request(bar, due, null, true);
+    this.update();
+  }
+
+  request(bar, due, section, snap = false) {
     this.abort?.abort(); // anything still on its way is too late now
     const abort = (this.abort = new AbortController());
+    if (snap) this.reaction = abort;
     const t0 = performance.now();
     this.decide({ state: this.moment(bar, section), questions: questionsFor(due) }, abort.signal).then(
-      (res) => this.answered(bar, due, res, performance.now() - t0),
+      (res) => this.answered(bar, due, res, performance.now() - t0, snap),
       (e) => this.failed(e),
-    );
+    ).finally(() => { if (this.reaction === abort) this.reaction = null; });
   }
 
   // What the model gets to see. Nothing about the patch: the moves say what they do.
   moment(bar, section) {
     const { reader } = this.transport;
-    const a = reader.analysis;
-    const t = reader.barTime(bar);
-    const span = reader.period * 4;
-    const was = reader.energyAt(t - 4 * span), is = reader.energyAt(t), will = reader.energyAt(t + 4 * span);
-    const change = will - was;
     const now = {}, held = {};
     for (const g of this.rig.groups) {
       now[g.name] = this.current.get(g.name);
@@ -164,16 +187,7 @@ export class DJ extends EventTarget {
     }
     return {
       direction: this.rig.brief || undefined,
-      music: {
-        bpm: Math.round(a.bpm),
-        section: section?.label,
-        bars_into_section: section?.into,
-        bars_left_in_section: section?.left,
-        next_section: section?.next?.label ?? 'end of the track',
-        energy: round2(is),
-        energy_trend: change > 0.12 ? 'rising' : change < -0.12 ? 'falling' : 'steady',
-        energy_in_4_bars: round2(will),
-      },
+      music: reader.analysis.live ? { bpm: Math.round(reader.analysis.bpm), ...this.ear.now(bar) } : this.ahead(bar, section),
       picture: this.picture ?? undefined,
       playing_now: now,
       bars_held: held,
@@ -181,7 +195,26 @@ export class DJ extends EventTarget {
     };
   }
 
-  answered(bar, due, res, ms) {
+  // what a track can tell about itself, the next four bars included
+  ahead(bar, section) {
+    const { reader } = this.transport;
+    const t = reader.barTime(bar);
+    const span = reader.period * 4;
+    const was = reader.energyAt(t - 4 * span), is = reader.energyAt(t), will = reader.energyAt(t + 4 * span);
+    const change = will - was;
+    return {
+      bpm: Math.round(reader.analysis.bpm),
+      section: section?.label,
+      bars_into_section: section?.into,
+      bars_left_in_section: section?.left,
+      next_section: section?.next?.label ?? 'end of the track',
+      energy: round2(is),
+      energy_trend: change > 0.12 ? 'rising' : change < -0.12 ? 'falling' : 'steady',
+      energy_in_4_bars: round2(will),
+    };
+  }
+
+  answered(bar, due, res, ms, snap = false) {
     const s = this.stats;
     s.calls++;
     s.inRow = 0;
@@ -189,18 +222,19 @@ export class DJ extends EventTarget {
     s.ms = ms;
     s.model = res.model ?? s.model;
     if (!this.running) return;
-    if (this.bar !== bar - 1) { s.late++; this.update(); return; }
+    if (snap ? this.bar > bar + 1 : this.bar !== bar - 1) { s.late++; this.update(); return; }
     for (const g of due) {
       if (this.pending.has(g.name) || !res.answers?.[g.name]) continue;
       const current = this.current.get(g.name);
       const { move, odds } = pickMove(g, res.answers[g.name], {
         current,
         heldBars: bar - (this.changedAt.get(g.name) ?? bar),
-        recent: this.recent.filter((r) => r.startsWith(`${g.name}:`)).map((r) => r.slice(g.name.length + 1)),
+        recent: snap ? [] : this.recent.filter((r) => r.startsWith(`${g.name}:`)).map((r) => r.slice(g.name.length + 1)), // the music comes first
         random: this.random,
+        daring: this.daring,
       });
       this.odds.set(g.name, odds);
-      if (move) this.pending.set(g.name, { move, by: 'dj', odds });
+      if (move) this.pending.set(g.name, { move, by: 'dj', odds, snap });
     }
     this.update();
   }
@@ -229,6 +263,20 @@ export class DJ extends EventTarget {
   }
 
   // ── moves ─────────────────────────────────────────────
+  // An answer to a change in the music doesn't wait for the downbeat, or take its time.
+  landOnBeat(beat) {
+    if (beat === this.beat) return;
+    this.beat = beat;
+    let landed = false;
+    for (const [name, { move, by, odds, snap }] of this.pending) {
+      if (!snap) continue;
+      this.fire(this.group(name), move, { by, odds, bars: Math.min(move.glide, SNAP) });
+      this.pending.delete(name);
+      landed = true;
+    }
+    if (landed) this.update();
+  }
+
   // Plays a move now. bars: how long it takes, in bars.
   fire(group, move, { by = 'dj', bars = move.glide, odds } = {}) {
     const { reader, playing } = this.transport;
@@ -250,7 +298,7 @@ export class DJ extends EventTarget {
     const was = this.current.get(group.name);
     if (was && was !== move.name) this.recent = [...this.recent, `${group.name}:${was}`].slice(-RECENT);
     this.current.set(group.name, move.name);
-    this.changedAt.set(group.name, this.bar ?? 0);
+    this.changedAt.set(group.name, this.bar ?? reader?.features(time).barIndex ?? 0);
     const beat = pos - (reader ? reader.beatPosition(reader.barTime(this.bar ?? 0)) : 0); // into the bar
     this.log = [...this.log, { bar: this.bar, group: group.name, move: move.name, by, beat, odds: odds?.[move.name] }].slice(-LOG);
   }

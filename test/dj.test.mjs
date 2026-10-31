@@ -186,6 +186,150 @@ test('a new section brings on_section groups forward', async () => {
   assert.equal(asked[0].state.music.next_section, 'drop');
 });
 
+// A live source: no sections and no future, and it fails loudly if the DJ goes looking for them.
+function liveSetup(groups, answer) {
+  const music = { kick: true };
+  const beat = BAR / 4;
+  const transport = {
+    time: 0,
+    playing: true,
+    play() {},
+    reader: {
+      period: beat,
+      analysis: { bpm: 120, live: true, unscaled: () => (music.kick ? 0.5 : 0.1) },
+      beatPosition: (x) => x / beat,
+      barTime: (bar) => bar * BAR,
+      energyAt() { throw new Error('a live input has no energy to look up'); },
+      sectionAtBar() { throw new Error('a live input has no sections'); },
+      features(x) {
+        const pos = x / beat, phase = pos % 1, v = music.kick ? 0.7 : 0.2;
+        return { level: v, bass: v, lowmid: v, mid: v, high: v, treble: v, kick: music.kick && phase < 0.5 ? 1 : 0, snare: 0, hat: phase > 0.5 ? 1 : 0, energy: 0.5, beatPos: pos, barIndex: Math.floor(pos / 4) };
+      },
+    },
+  };
+  const graph = rigged(groups);
+  const asked = [];
+  const dj = new DJ({ graph, transport, random: () => 0.5, decide: async (body, signal) => { asked.push({ at: transport.time, ...body }); return answer(body, signal); } });
+  const run = async (until) => {
+    for (; transport.time < until; transport.time += 0.02) { dj.tick(); await tick(); }
+  };
+  return { graph, transport, dj, asked, run, music, scale: () => graph.nodes.get('n2').params.scale };
+}
+const pickB = () => ({ answers: { look: { type: 'choice', choice: 'b', probabilities: { a: 0, b: 1, c: 0 } } }, usage: { cost: 0.0001 }, model: 'm' });
+const SLOW = { ...LOOK, every: 64, on_section: true, moves: LOOK.moves.map((m) => ({ ...m, glide: 4 })) };
+
+test('live: it hears a change, asks at once and lands on the next beat, fast', async () => {
+  const { dj, run, music, asked, scale } = liveSetup([SLOW], pickB);
+  await run(16);          // it listens before anyone presses Start
+  dj.start();
+  await run(20);
+  assert.equal(asked.length, 0);
+  music.kick = false;     // gone at 20.0 s, a downbeat
+  await run(22);
+  assert.equal(asked.length, 1);
+  assert.ok(asked[0].at < 21.5, `asked ${(asked[0].at - 20).toFixed(2)} s after the change`);
+  const { music: told } = asked[0].state;
+  assert.equal(told.section, 'breakdown');
+  assert.equal(told.just_changed, 'kick dropped out');
+  for (const key of ['next_section', 'bars_left_in_section', 'energy_in_4_bars']) assert.ok(!(key in told), key);
+  const landed = dj.log.at(-1);
+  assert.equal(landed.move, 'b');
+  assert.equal(Math.abs(landed.beat % 1 - Math.round(landed.beat % 1)) < 0.1, true, 'on a beat');
+  assert.notEqual(Math.round(landed.beat) % 4, 0, 'and not held back for the downbeat');
+  await run(22.6);
+  assert.equal(scale(), 6); // half a bar, though the move's own glide is four
+});
+
+test('live: a group not marked on_section keeps its own pace', async () => {
+  const { dj, run, music, asked } = liveSetup([{ ...SLOW, on_section: false }], pickB);
+  await run(16);
+  dj.start();
+  await run(20);
+  music.kick = false;
+  await run(24);
+  assert.equal(asked.length, 0);
+});
+
+test('live: what was planned before the change is dropped, your own pick is not', async () => {
+  const { dj, run, music } = liveSetup([SLOW], pickB);
+  await run(16);
+  dj.start();
+  await run(20);
+  dj.pending.set('look', { move: dj.rig.groups[0].moves[2], by: 'dj' });
+  music.kick = false;
+  await run(21);
+  assert.notEqual(dj.pending.get('look')?.move.name, 'c');
+  const you = liveSetup([SLOW], pickB);
+  await you.run(16);
+  you.dj.start();
+  await you.run(20.2);
+  you.dj.queue('look', 'c');
+  you.music.kick = false;
+  await you.run(21);
+  assert.equal(you.dj.pending.get('look')?.move.name, 'c');
+});
+
+test('live: the bar ask does not cancel an answer to a change that is on its way', async () => {
+  let release;
+  const held = () => new Promise((r) => { release = r; });
+  const { dj, run, music, asked } = liveSetup([{ ...SLOW, every: 1 }], (body) => (body.state.music.just_changed ? held() : pickB()));
+  await run(16);
+  dj.start();
+  await run(20.2);        // past the bar's own ask
+  const before = asked.length;
+  music.kick = false;
+  await run(21.8);
+  assert.equal(asked.length, before + 1);
+  await run(22.2);          // a downbeat passes, and this group is due every bar
+  assert.equal(asked.length, before + 1);
+  release(pickB());
+  await run(23);
+  assert.equal(dj.log.at(-1).move, 'b');
+  assert.equal(dj.stats.late, 0);
+});
+
+test('live: a set started long into the Clock holds its moves from the start, not from bar zero', async () => {
+  const { dj, run, transport } = liveSetup([LOOK], pickB);
+  transport.time = 200;
+  await run(204);
+  dj.start();
+  assert.equal(dj.changedAt.get('look'), 102);
+});
+
+test('daring: the middle changes nothing, careful holds and asks less, daring the other way round', () => {
+  const g = { every: 8, on_section: false };
+  for (let bar = 0; bar < 64; bar++) assert.equal(isDue(g, bar, { bar: 0 }, 0.5), isDue(g, bar, { bar: 0 }));
+  assert.ok(!isDue(g, 8, { bar: 0 }, 0) && isDue(g, 16, { bar: 0 }, 0));
+  assert.ok(isDue(g, 4, { bar: 0 }, 1));
+  assert.ok(isDue({ every: 1 }, 3, { bar: 0 }, 1)); // never less than a bar
+});
+
+test('daring: long shots come up as the knob turns, and the favourite wins when it is down', () => {
+  const group = { every: 8, moves: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] };
+  const answer = { probabilities: { a: 0.08, b: 0.9, c: 0.02 } };
+  const share = (daring) => {
+    let other = 0, n = 2000;
+    for (let i = 0; i < n; i++) {
+      const { move } = pickMove(group, answer, { current: 'b', heldBars: 0, random: () => (i + 0.5) / n, daring });
+      if (move) other++;
+    }
+    return other / n;
+  };
+  const low = share(0), mid = share(0.5), high = share(1);
+  assert.ok(low < 0.001, `careful: ${low}`);
+  assert.ok(mid > 0.02 && mid < 0.1, `middle: ${mid}`);
+  assert.ok(high > 0.2, `daring: ${high}`);
+});
+
+test('daring: an ordered group moves on a smaller nudge, and a careful one waits for a big one', () => {
+  const group = { ordered: true, every: 4, moves: [{ name: 'a' }, { name: 'b' }, { name: 'c' }, { name: 'd' }] };
+  const at = (daring, score) => pickMove(group, { score }, { current: 'b', daring }).move?.name ?? null;
+  assert.equal(at(0.5, 1.5), null);
+  assert.equal(at(1, 1.6), 'c');
+  assert.equal(at(0, 2.2), null);
+  assert.equal(at(0, 2.7), 'd');
+});
+
 test('a late answer changes nothing', async () => {
   let release;
   const { dj, at, scale } = setup([LOOK], () => new Promise((r) => { release = r; }));

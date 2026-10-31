@@ -2,10 +2,15 @@
 // The model says how well each move suits the moment; the choice is then drawn
 // from those odds, so the same moment doesn't always get the same answer, and a
 // move that has been on for a long time slowly loses out.
+// Daring (0..1) is how far it strays from that. At 0.5 it plays the odds as they are. Below, the
+// favourite nearly always wins and moves are held longer. Above, long shots come up, it tires of a
+// move sooner and it decides more often.
 
 const SHARPEN = 1.5;    // favours the moves the model likes most
 const RECENT_PENALTY = 0.4;
 const STAY_BAND = 0.75; // an ordered group moves only when the music is this far from where it is
+const patience = (daring) => 2 ** (1 - 2 * daring); // 2 when careful, 0.5 when daring
+const focus = (daring) => 3 ** (1 - 2 * daring);    // 3 when careful, a third when daring
 
 export function questionsFor(groups) {
   const out = {};
@@ -18,27 +23,27 @@ export function questionsFor(groups) {
 }
 
 // Which group has to decide before `bar` starts. Phrases count from the section start.
-export function isDue(group, bar, section) {
+export function isDue(group, bar, section, daring = 0.5) {
   const into = bar - (section?.bar ?? 0);
-  return (group.on_section && into === 0) || into % group.every === 0;
+  return (group.on_section && into === 0) || into % Math.max(1, Math.round(group.every * patience(daring))) === 0;
 }
 
 // → { move, odds: { name: 0..1 } }. move is null when the group should stay as it is.
-export function pickMove(group, answer, { current, heldBars = 0, recent = [], random = Math.random }) {
+export function pickMove(group, answer, { current, heldBars = 0, recent = [], random = Math.random, daring = 0.5 }) {
   if (group.ordered) {
     const score = Number(answer?.score);
     if (!Number.isFinite(score)) return { move: null, odds: {} };
     const level = Math.max(0, Math.min(group.moves.length - 1, Math.round(score)));
     const at = group.moves.findIndex((m) => m.name === current);
     const odds = Object.fromEntries(group.moves.map((m, i) => [m.name, answer.probabilities?.[i] ?? 0]));
-    if (at >= 0 && Math.abs(score - at) < STAY_BAND) return { move: null, odds };
+    if (at >= 0 && Math.abs(score - at) < STAY_BAND * patience(daring)) return { move: null, odds };
     return { move: level === at ? null : group.moves[level], odds };
   }
   const given = answer?.probabilities;
   if (!given) return { move: null, odds: {} };
   const weights = group.moves.map((m) => {
-    let w = Math.max(Number(given[m.name]) || 0, 0.01) ** SHARPEN;
-    if (m.name === current) w *= 0.5 ** (heldBars / (group.every * 2));
+    let w = Math.max(Number(given[m.name]) || 0, 0.01) ** (SHARPEN * focus(daring));
+    if (m.name === current) w *= 0.5 ** (heldBars / (group.every * 2 * patience(daring)));
     else if (recent.includes(m.name)) w *= RECENT_PENALTY;
     return w;
   });
