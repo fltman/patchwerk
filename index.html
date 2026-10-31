@@ -16,6 +16,7 @@
     <button id="add-btn" class="btn accent" title="Add a node (Tab)">+ Node</button>
     <button id="ai-btn" class="btn ai" title="Describe what you want and let the assistant patch it (⌘K)">✦ AI</button>
     <button id="dj-btn" class="btn dj-toggle" title="Let a decision model perform this patch, live">◉ DJ</button>
+    <button id="dmx-btn" class="btn dj-toggle" title="See the lights, and connect a USB DMX interface">✺ Lights</button>
     <div class="spacer"></div>
     <label class="field">Example
       <select id="examples"></select>
@@ -67,6 +68,20 @@
           <button id="dj-close" class="btn small" title="Close">✕</button>
         </div>
         <div id="dj-groups" class="dj-groups"></div>
+      </aside>
+
+      <aside id="dmx" class="dj dmx hidden">
+        <div class="dj-head">
+          <span class="dj-title">✺ Lights</span>
+          <button id="dmx-connect" class="btn small">Connect USB…</button>
+          <span id="dmx-status" class="dj-status"></span>
+          <span class="spacer"></span>
+          <button id="dmx-close" class="btn small" title="Close">✕</button>
+        </div>
+        <div class="dmx-body">
+          <canvas id="dmx-stage" class="hidden"></canvas>
+          <canvas id="dmx-map" title="All 512 DMX channels"></canvas>
+        </div>
       </aside>
     </section>
 

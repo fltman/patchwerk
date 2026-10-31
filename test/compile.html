@@ -17,7 +17,7 @@ document.getElementById('c').width = W; document.getElementById('c').height = H;
 const gl = document.getElementById('c').getContext('webgl2');
 const floatOk = !!gl.getExtension('EXT_color_buffer_float');
 const results = [];
-const CATS = ['generator', 'effect', 'mix', 'output', 'custom'];
+const CATS = ['generator', 'effect', 'mix', 'dmx', 'output', 'custom'];
 const NAME = /^[a-zA-Z][a-zA-Z0-9]*$/;
 
 function validate(def, seen) {

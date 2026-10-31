@@ -15,6 +15,7 @@ import { Outputs } from './ui/outputs.js';
 import { DJ } from './dj/dj.js';
 import { PictureMeter } from './dj/picture.js';
 import { DJPanel } from './ui/dj.js';
+import { DmxPanel } from './ui/dmx.js';
 
 const $ = (id) => document.getElementById(id);
 const PATCH_KEY = 'patchwerk.patch.v1';
@@ -49,7 +50,8 @@ renderer.meter = new PictureMeter(renderer.gl, (stats) => { dj.picture = stats; 
 const chat = new Chat({ graph, editor, renderer, transport, dj, toast });
 document.getElementById('ai-btn').onclick = () => chat.toggle();
 const djPanel = new DJPanel({ dj, graph, chat, transport });
-Object.assign(window.patchwerk, { chat, dj, djPanel });
+const dmx = new DmxPanel({ renderer, graph, toast });
+Object.assign(window.patchwerk, { chat, dj, djPanel, dmx });
 
 // ── patch persistence ───────────────────────────────────
 function loadPatch(json) {
@@ -329,6 +331,7 @@ function step(now, time, playing, wallDt, everyThumb = false) {
     reader: transport.reader, mono: transport.mono, sampleRate: transport.buffer?.sampleRate ?? 44100,
     visible: editor.thumbsOn ? visibleImage : [], thumbs,
   });
+  dmx.frame();
   editor.tick(renderer, visible);
   if (tab === 'code') code.tick();
 

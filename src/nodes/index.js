@@ -4,6 +4,7 @@ import effects from './effects.js';
 import mix from './mix.js';
 import control from './control.js';
 import special from './special.js';
+import dmx from './dmx.js';
 import { customDef, DEFAULT_CODE } from './custom.js';
 
 export const CATEGORIES = {
@@ -13,14 +14,15 @@ export const CATEGORIES = {
   effect: { label: 'Effects', badge: 'FX', color: '#9b5de5' },
   mix: { label: 'Mix', badge: 'MIX', color: '#00a6c8' },
   custom: { label: 'Code', badge: 'GLSL', color: '#f15bb5' },
+  dmx: { label: 'Lights', badge: 'DMX', color: '#ffd166' },
   output: { label: 'Output', badge: 'OUT', color: '#e63946' },
 };
 
 // image nodes the shader check compiles (custom GLSL is checked through its default code)
-export const imageNodes = [...generators, ...effects, ...mix, ...special, customDef(DEFAULT_CODE)];
+export const imageNodes = [...generators, ...effects, ...mix, ...dmx.filter((d) => d.glsl), ...special, customDef(DEFAULT_CODE)];
 
 const glslStub = { type: 'glsl', title: 'GLSL', category: 'custom', description: customDef(DEFAULT_CODE).description, tags: ['code', 'shader', 'custom', 'write'] };
-export const allNodes = [...control, ...generators, ...effects, ...mix, ...special, glslStub];
+export const allNodes = [...control, ...generators, ...effects, ...mix, ...dmx, ...special, glslStub];
 const byType = new Map(allNodes.map((d) => [d.type, d]));
 
 export function getDef(type) { return byType.get(type); }

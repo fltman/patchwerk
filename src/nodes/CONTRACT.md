@@ -93,6 +93,14 @@ always moves smoothly forward (faster when the cable pushes the speed up).
 * Keep it fast: it runs every frame at up to 1920×1080 next to 20 other nodes.
   ~64 raymarch steps or ~32 texture taps per pixel is the ceiling.
 
+## Lights (`src/nodes/dmx.js`)
+
+A node with a `process` may write to `ctx.dmx`, the frame's 512-byte universe, which the engine
+clears before the control nodes run. Where two nodes claim a channel the higher value wins. An image node
+with `cells: (p) => [columns, rows]` is always rendered, cable or no cable, and gets
+that grid of its own picture in `state.picture` (a `tap.js` frame, a frame or two late), each pixel
+the mean of the part of the picture under it. Its `process` runs as well.
+
 ## Control node definition (JavaScript, `src/nodes/control.js`)
 
 ```js

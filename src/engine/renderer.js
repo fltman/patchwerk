@@ -3,9 +3,11 @@
 import { composeFragment } from './compose.js';
 import { VERTEX } from './prelude.js';
 import { createContext, createProgram, createTarget, deleteTarget, createDataTexture, createQuad, hexToRgb } from './gl.js';
+import { CELL_MEAN, FrameTap } from './tap.js';
 import { isImage, isFloatParam, isPatchable } from '../nodes/index.js';
 
 export const DEFAULT_DEPTH = 0.5;
+const READ_MS = 20; // a little faster than DMX can send
 
 const BLIT = `#version 300 es
 precision highp float;
@@ -26,6 +28,7 @@ export class Renderer {
     this.programs = new Map();
     this.nodeState = new Map();
     this.cpuState = new Map();
+    this.dmx = new Uint8Array(512); // this frame's lights, see nodes/dmx.js
     this.values = new Map();
     this.effective = new Map();
     this.errors = new Map();
@@ -68,7 +71,7 @@ export class Renderer {
   reconcile() {
     const g = this.graph;
     for (const [id, st] of this.nodeState) {
-      if (!g.nodes.has(id)) { this.freeTargets(st); this.nodeState.delete(id); }
+      if (!g.nodes.has(id)) { this.freeTargets(st); st.tap?.dispose(); this.nodeState.delete(id); }
     }
     for (const map of [this.cpuState, this.values, this.effective, this.errors]) {
       for (const id of [...map.keys()]) if (!g.nodes.has(id)) map.delete(id);
@@ -89,6 +92,21 @@ export class Renderer {
   }
 
   link(id, port) { return this.inbound.get(`${id}:${port}`); }
+
+  // A small copy of a node's picture for its own process() to read, a frame or two late.
+  readCells(id, st, tex, [w, h]) {
+    st.tap ??= new FrameTap(this.gl, {
+      fragment: CELL_MEAN,
+      wants: () => {
+        const now = performance.now();
+        if (now - (st.readAt ?? 0) < READ_MS) return false;
+        st.readAt = now;
+        return true;
+      },
+      onFrame: (buf) => { const cpu = this.cpuState.get(id); if (cpu) cpu.picture = buf; },
+    });
+    st.tap.frame(tex, w, h);
+  }
 
   stateFor(id) {
     let st = this.nodeState.get(id);
@@ -197,11 +215,12 @@ export class Renderer {
     const order = g.order();
     const spectrum = this.updateAudioTextures(f.reader, f.mono, f.sampleRate, f.time);
     const ctx = {
-      time: f.time, dt: f.dt, wallDt: f.wallDt, playing: f.playing, reader: f.reader, spectrum,
+      time: f.time, dt: f.dt, wallDt: f.wallDt, playing: f.playing, reader: f.reader, spectrum, dmx: this.dmx,
       beatPos: f.reader ? f.reader.beatPosition(f.time) : f.time * 2,
     };
 
     // ── control nodes ──
+    this.dmx.fill(0);
     for (const id of order) {
       const node = g.nodes.get(id);
       const def = g.def(node);
@@ -219,6 +238,7 @@ export class Renderer {
     const outNode = g.outputNode();
     const want = new Set(f.visible ?? []);
     if (outNode) want.add(outNode.id);
+    for (const n of g.nodes.values()) if (g.def(n)?.cells) want.add(n.id); // lights watch their picture, cable or no cable
     const live = g.upstream(want);
 
     gl.bindVertexArray(this.quad);
@@ -292,6 +312,7 @@ export class Renderer {
         if (q.integrate && (l = loc(`p_${q.name}_t`))) gl.uniform1f(l, st.phases[q.name]);
       }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+      if (def.cells) this.readCells(id, st, dst.tex, def.cells(p));
       if (def.feedback) st.ping ^= 1;
       for (const tex of mipped) {
         gl.bindTexture(gl.TEXTURE_2D, tex);

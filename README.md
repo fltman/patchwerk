@@ -46,6 +46,11 @@ Chrome/Edge/Arc recommended.
   becomes a patchable slider.
 - **Output:** fullscreen (double-click the preview) or ● REC to record video
   with sound. Patches save to the browser automatically; *Save / Open* for files.
+- **Light a room:** the *Lights* modules patch like any other. **DMX Pixels** sits in the
+  picture chain and lights a grid of fixtures with the colours under each one; **DMX Out**
+  gives you eight channels to drive with cables. The DJ can move them like any knob. **✺ Lights**
+  shows the lamps and all 512 channels with nothing plugged in, and **Connect USB…** sends them
+  to an Enttec DMX USB Pro, an Open DMX cable or a copy of either, in Chrome or Edge.
 - **Send it to other apps:** tick **Syphon** (macOS), **Spout** (Windows) or
   **NDI** under the preview, and the picture shows up as a source called
   *Patchwerk* in Resolume, MadMapper, TouchDesigner, OBS, VDMX and the like. NDI
